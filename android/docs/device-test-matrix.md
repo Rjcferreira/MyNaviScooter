@@ -4,9 +4,14 @@
 
 - Estado: original de utilização.
 - Alteração conhecida: Zero Start ativado através do ScooterHacking Utility.
+- Firmware observado na app Segway:
+  - Vehicle Controller / VCU: `1.5.9`
+  - Battery / BMS: `4.1.6.8`
+  - Bluetooth / BLE: `2.1.13`
+  - Motor Control / MCU: `1.6.0`
 - Tratamento: capturar e guardar como `baseline_current_user_state`.
 - Não assumir que esta captura representa os valores de fábrica.
-- Não executar escritas ou flash durante a primeira sessão.
+- Não executar escritas ou flash durante a primeira sessão. Em particular, o VCU `1.5.9` fica bloqueado para qualquer caminho de flash SHU-compatible até confirmação específica.
 
 ## F3 Pro — segunda unidade
 
