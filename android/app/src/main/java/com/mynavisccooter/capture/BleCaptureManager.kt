@@ -252,24 +252,46 @@ class BleCaptureManager(
         }
         // A resposta chega por notify/indicate. Dá tempo para a receber antes de exportar.
         mainHandler.postDelayed({
-            if (preComm == null) {
-                val fallback = gatt.getService(nordicUartService)?.characteristics
-                    ?.firstOrNull { it.uuid.toString().endsWith("0002-b5a3-f393-e0a9-e50e24dcca9e") }
-                if (fallback != null && fallback.properties and BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE != 0) {
-                    val fallbackFrame = Encryption2Probe.buildPreCommFrame(item.name)
-                    probeRequestHex = bytesToHex(fallbackFrame)
-                    fallback.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-                    fallback.value = fallbackFrame
-                    listener.onStatus("Sem resposta no canal custom; a testar o canal BLE compatível…")
-                    gatt.writeCharacteristic(fallback)
-                    mainHandler.postDelayed({ readNext(gatt) }, 700L)
-                } else {
-                    readNext(gatt)
-                }
-            } else {
-                readNext(gatt)
-            }
+            continueProbeFallback(gatt, item)
         }, 700L)
+    }
+
+    private fun continueProbeFallback(gatt: BluetoothGatt, item: ScannedScooter) {
+        if (preComm != null) {
+            readNext(gatt)
+            return
+        }
+        val authChannel = gatt.getService(customNinebotService)?.characteristics
+            ?.firstOrNull { it.uuid.toString().endsWith("0005-0000-0000-006e-696e65626f74") }
+        if (authChannel != null && authChannel.properties and BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE != 0) {
+            val frame = Encryption2Probe.buildPreCommFrame(item.name)
+            probeRequestHex = bytesToHex(frame)
+            authChannel.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+            authChannel.value = frame
+            listener.onStatus("Sem resposta no canal principal; a testar o canal de autenticação X3…")
+            gatt.writeCharacteristic(authChannel)
+            mainHandler.postDelayed({ continueLegacyProbe(gatt, item) }, 700L)
+        } else {
+            continueLegacyProbe(gatt, item)
+        }
+    }
+
+    private fun continueLegacyProbe(gatt: BluetoothGatt, item: ScannedScooter) {
+        if (preComm != null) {
+            readNext(gatt)
+            return
+        }
+        val fallback = gatt.getService(nordicUartService)?.characteristics
+            ?.firstOrNull { it.uuid.toString().endsWith("0002-b5a3-f393-e0a9-e50e24dcca9e") }
+        if (fallback != null && fallback.properties and BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE != 0) {
+            val frame = Encryption2Probe.buildPreCommFrame(item.name)
+            probeRequestHex = bytesToHex(frame)
+            fallback.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+            fallback.value = frame
+            listener.onStatus("Sem resposta no canal de autenticação; a testar o canal BLE compatível…")
+            gatt.writeCharacteristic(fallback)
+        }
+        mainHandler.postDelayed({ readNext(gatt) }, 700L)
     }
 
     private fun recordNotification(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, value: ByteArray) {
@@ -380,7 +402,7 @@ class BleCaptureManager(
             }
             listener.onCaptureReady(CaptureReport(
                 capturedAtUtc = CaptureReport.nowUtc(),
-                appVersion = "0.1.4",
+                appVersion = "0.1.5",
                 androidVersion = "${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})",
                 deviceName = item.name,
                 deviceAddress = item.device.address,
