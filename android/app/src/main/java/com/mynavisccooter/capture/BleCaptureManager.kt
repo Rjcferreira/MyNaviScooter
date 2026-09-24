@@ -50,6 +50,7 @@ class BleCaptureManager(
     private val rawNotificationHex = mutableListOf<String>()
     private var notificationBuffer = ByteArray(0)
     private var preComm: PreCommResult? = null
+    private var probeRequestHex: String? = null
     private var probeAttempted = false
     private var reportScheduled = false
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -120,6 +121,7 @@ class BleCaptureManager(
         rawNotificationHex.clear()
         notificationBuffer = ByteArray(0)
         preComm = null
+        probeRequestHex = null
         probeAttempted = false
         reportScheduled = false
         listener.onStatus("A ligar a ${item.name} (modo somente leitura)…")
@@ -228,6 +230,7 @@ class BleCaptureManager(
         }
 
         val frame = Encryption2Probe.buildPreCommFrame(item.name)
+        probeRequestHex = bytesToHex(frame)
         probeAttempted = true
         listener.onStatus("A recolher resposta de diagnóstico BLE (sem alterar configurações)…")
         characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
@@ -283,7 +286,7 @@ class BleCaptureManager(
             }
             listener.onCaptureReady(CaptureReport(
                 capturedAtUtc = CaptureReport.nowUtc(),
-                appVersion = "0.1.1",
+                appVersion = "0.1.2",
                 androidVersion = "${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})",
                 deviceName = item.name,
                 deviceAddress = item.device.address,
@@ -294,6 +297,7 @@ class BleCaptureManager(
                 protocolProbe = ProtocolProbeCapture(
                     attempted = probeAttempted,
                     notificationCharacteristics = notificationCharacteristics.distinct(),
+                    requestHex = probeRequestHex,
                     rawNotificationHex = rawNotificationHex.toList(),
                     preComm = preComm,
                     note = if (probeAttempted) {
