@@ -10,10 +10,12 @@ import android.os.Bundle
 import android.view.Gravity
 import android.view.View
 import android.widget.Button
+import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -24,9 +26,11 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
     private lateinit var exportButton: Button
     private var latestReport: CaptureReport? = null
     private lateinit var ble: BleCaptureManager
+    private lateinit var credentials: EncryptedCredentialStore
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        credentials = EncryptedCredentialStore(this)
         ble = BleCaptureManager(this, this)
         buildUi()
         requestBluetoothPermissionsIfNeeded()
@@ -50,6 +54,12 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
 
         val scan = Button(this).apply { text = "Procurar scooters"; setOnClickListener { ble.startScan() } }
         root.addView(scan, LinearLayout.LayoutParams(-1, -2).apply { topMargin = 20 })
+
+        val credentialButton = Button(this).apply {
+            text = if (credentials.hasCredentials()) "Credencial guardada · importar outra" else "Importar credencial de sessão"
+            setOnClickListener { showCredentialDialog() }
+        }
+        root.addView(credentialButton)
 
         status = text("Pronto. Liga a ZT3 e toca em Procurar scooters.", 14f, 0xFF6DE7A0.toInt())
         root.addView(status)
@@ -106,6 +116,31 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
             putExtra(Intent.EXTRA_TITLE, "mynavi-${report.model.name.replace(" ", "-").lowercase()}-capture.json")
         }
         startActivityForResult(intent, EXPORT_REQUEST)
+    }
+
+    private fun showCredentialDialog() {
+        val input = EditText(this).apply {
+            hint = "segway://credentials?sn=...&pwd=..."
+            setSingleLine(false)
+            minLines = 3
+            setPadding(24, 16, 24, 16)
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Credencial da tua scooter")
+            .setMessage("Cola aqui a URI de credenciais. A app valida e guarda-a cifrada apenas neste telemóvel. Nunca a envies por chat ou para o GitHub.")
+            .setView(input)
+            .setNegativeButton("Cancelar", null)
+            .setPositiveButton("Guardar") { _, _ ->
+                val result = CredentialParser.parse(input.text.toString())
+                result.onSuccess {
+                    credentials.save(it)
+                    status.text = "Credencial guardada localmente para ${it.serialNumber}. Autenticação BLE ainda não foi iniciada."
+                    Toast.makeText(this, "Credencial guardada de forma cifrada", Toast.LENGTH_LONG).show()
+                }.onFailure {
+                    Toast.makeText(this, "Credencial inválida: ${it.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+            .show()
     }
 
     @Deprecated("Activity result API kept minimal for the first capture build")

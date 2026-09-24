@@ -10,6 +10,7 @@ Esta é a primeira fase real da app: captura BLE somente de leitura para a Segwa
 - liga à scooter e descobre serviços GATT;
 - lê apenas características que anunciam a propriedade `READ`;
 - exporta um JSON de diagnóstico com serviços, características, valores legíveis, RSSI e fabricante;
+- aceita uma URI `segway://credentials?...` e guarda a credencial de sessão cifrada no Android para a futura autenticação;
 - não executa comandos `WRITE`, não faz flash e não altera velocidade/perfis.
 
 ## Abrir e instalar
@@ -24,6 +25,8 @@ Esta é a primeira fase real da app: captura BLE somente de leitura para a Segwa
 ## Limites desta fase
 
 O protocolo autenticado X3 pode esconder leituras até a sessão ser autenticada. Isso é intencional: primeiro recolhemos o fingerprint e o GATT real da unidade, sem arriscar uma escrita. O JSON exportado é um diagnóstico, não um backup de firmware completo.
+
+As credenciais de sessão são segredos por unidade. Nunca devem ser colocadas no GitHub ou enviadas por chat; a importação atual fica cifrada no armazenamento local do Android e ainda não inicia nenhuma autenticação automaticamente.
 
 Depois de analisarmos a captura real, implementamos o leitor autenticado específico da versão da ZT3 e só então o backup completo e a restauração.
 
