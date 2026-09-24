@@ -11,6 +11,11 @@ data class PreCommResult(
     val frameHex: String
 )
 
+data class AuthResult(
+    val accepted: Boolean,
+    val frameHex: String
+)
+
 object Encryption2Probe {
     // The ZT3/X3 interoperability implementation uses this Gen2-compatible
     // non-SN block for PRE_COMM, even though the advertisement advertises
@@ -51,6 +56,42 @@ object Encryption2Probe {
         return PreCommResult(index, bytesToHex(auth) ?: "", serial, bytesToHex(frame) ?: "")
     }
 
+    fun buildAuthFrame(deviceName: String, passwordHex: String, authHex: String, serial: String): ByteArray {
+        val password = hexToBytes(passwordHex)
+        val auth = hexToBytes(authHex)
+        val serialBytes = serial.toByteArray(Charsets.US_ASCII).copyOf(14)
+        val plaintext = byteArrayOf(0x5A, 0xA5.toByte(), 0x0E, 0x3E, 0x04, 0x5D, 0x00) + serialBytes
+        val key = deriveKey(password, auth)
+        val nonce = byteArrayOf(0x00, 0x00, 0x00, 0x01) + auth.copyOf(8) + byteArrayOf(0x00)
+        val encryptedBody = ctrXor(key, nonce, plaintext.copyOfRange(3, plaintext.size), 1)
+        val tag = cbcMac(key, nonce, plaintext)
+        val tagKeystream = aesEcb(key, byteArrayOf(0x01) + nonce + byteArrayOf(0x00, 0x00))
+        val encryptedTag = ByteArray(4) { i -> (tag[i].toInt() xor tagKeystream[i].toInt()).toByte() }
+        return plaintext.copyOfRange(0, 3) + encryptedBody + encryptedTag + byteArrayOf(0x00, 0x01)
+    }
+
+    fun parseAuthFrame(frame: ByteArray, deviceName: String, passwordHex: String, authHex: String): AuthResult? {
+        if (frame.size < 27 || frame[0] != 0x5A.toByte() || frame[1] != 0xA5.toByte()) return null
+        val length = frame[2].toInt() and 0xFF
+        val total = length + 13
+        if (length != 14 || frame.size < total) return null
+        val counter = ((frame[total - 2].toInt() and 0xFF) shl 8) or (frame[total - 1].toInt() and 0xFF)
+        if (counter == 0) return null
+        val password = hexToBytes(passwordHex)
+        val auth = hexToBytes(authHex)
+        val key = deriveKey(password, auth)
+        val nonce = byteArrayOf(
+            ((counter ushr 24) and 0xFF).toByte(),
+            ((counter ushr 16) and 0xFF).toByte(),
+            ((counter ushr 8) and 0xFF).toByte(),
+            (counter and 0xFF).toByte()
+        ) + auth.copyOf(8) + byteArrayOf(0x00)
+        val bodyLength = length + 4
+        val body = ctrXor(key, nonce, frame.copyOfRange(3, 3 + bodyLength), 1)
+        if (body.size < 4 || body[0].toInt() and 0xFF != 0x3E || body[1].toInt() and 0xFF != 0x04 || body[2].toInt() and 0xFF != 0x5D) return null
+        return AuthResult(body[3].toInt() and 0xFF == 1, bytesToHex(frame) ?: "")
+    }
+
     private fun deriveKey(key1: ByteArray, key2: ByteArray): ByteArray {
         val input = ByteArray(32)
         key1.copyInto(input, 0, 0, minOf(key1.size, 16))
@@ -62,6 +103,29 @@ object Encryption2Probe {
         val cipher = Cipher.getInstance("AES/ECB/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, "AES"))
         return cipher.doFinal(input)
+    }
+
+    private fun ctrXor(key: ByteArray, nonce: ByteArray, input: ByteArray, startBlock: Int): ByteArray {
+        return ByteArray(input.size) { i ->
+            val block = startBlock + i / 16
+            val counterBlock = byteArrayOf(0x01) + nonce + byteArrayOf(0x00, (block and 0xFF).toByte())
+            (input[i].toInt() xor aesEcb(key, counterBlock)[i % 16].toInt()).toByte()
+        }
+    }
+
+    private fun cbcMac(key: ByteArray, nonce: ByteArray, plaintext: ByteArray): ByteArray {
+        val b0 = byteArrayOf(0x59) + nonce + byteArrayOf(0x00, (plaintext.size - 3).toByte())
+        var state = aesEcb(key, b0)
+        val aad = plaintext.copyOfRange(0, 3) + ByteArray(13)
+        state = aesEcb(key, xor(state, aad))
+        val payload = plaintext.copyOfRange(3, plaintext.size)
+        var offset = 0
+        while (offset < payload.size) {
+            val block = payload.copyOfRange(offset, minOf(offset + 16, payload.size)).let { it + ByteArray(16 - it.size) }
+            state = aesEcb(key, xor(state, block))
+            offset += 16
+        }
+        return state.copyOf(4)
     }
 
     private fun xor(left: ByteArray, right: ByteArray): ByteArray = ByteArray(left.size) { i ->

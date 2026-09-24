@@ -25,6 +25,9 @@ data class ProtocolProbeCapture(
     val requestHex: String?,
     val rawNotificationHex: List<String>,
     val preComm: PreCommResult?,
+    val authenticationAttempted: Boolean,
+    val authenticated: Boolean,
+    val authenticationNote: String,
     val note: String
 )
 
@@ -71,7 +74,7 @@ data class CaptureReport(
             val preComm = probe.preComm?.let { p ->
                 "{\"index\":${p.index},\"authParameterHex\":\"${esc(p.authParameterHex)}\",\"reportedSerial\":${p.reportedSerial?.let { "\"${esc(it)}\"" } ?: "null"},\"frameHex\":\"${esc(p.frameHex)}\"}"
             } ?: "null"
-            "{\"attempted\":${probe.attempted},\"notificationCharacteristics\":${probe.notificationCharacteristics.joinToString(",", "[", "]") { "\"${esc(it)}\"" }},\"requestHex\":${probe.requestHex?.let { "\"${esc(it)}\"" } ?: "null"},\"rawNotificationHex\":${probe.rawNotificationHex.joinToString(",", "[", "]") { "\"${esc(it)}\"" }},\"preComm\":$preComm,\"note\":\"${esc(probe.note)}\"}"
+            "{\"attempted\":${probe.attempted},\"notificationCharacteristics\":${probe.notificationCharacteristics.joinToString(",", "[", "]") { "\"${esc(it)}\"" }},\"requestHex\":${probe.requestHex?.let { "\"${esc(it)}\"" } ?: "null"},\"rawNotificationHex\":${probe.rawNotificationHex.joinToString(",", "[", "]") { "\"${esc(it)}\"" }},\"preComm\":$preComm,\"authenticationAttempted\":${probe.authenticationAttempted},\"authenticated\":${probe.authenticated},\"authenticationNote\":\"${esc(probe.authenticationNote)}\",\"note\":\"${esc(probe.note)}\"}"
         } ?: "null"
 
         return """

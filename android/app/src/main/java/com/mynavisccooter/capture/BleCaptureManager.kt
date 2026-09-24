@@ -52,8 +52,13 @@ class BleCaptureManager(
     private var preComm: PreCommResult? = null
     private var probeRequestHex: String? = null
     private var probeAttempted = false
+    private var authenticationAttempted = false
+    private var authenticated = false
+    private var authenticationNote = "Autenticação de leitura não iniciada."
+    private var activeCredentials: SessionCredentials? = null
     private var reportScheduled = false
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val credentialStore = EncryptedCredentialStore(context)
 
     private val customNinebotService = UUID.fromString("6e400001-0000-0000-006e-696e65626f74")
     private val nordicUartService = UUID.fromString("6e400001-b5a3-f393-e0a9-e50e24dcca9e")
@@ -124,6 +129,10 @@ class BleCaptureManager(
         preComm = null
         probeRequestHex = null
         probeAttempted = false
+        authenticationAttempted = false
+        authenticated = false
+        authenticationNote = "Autenticação de leitura não iniciada."
+        activeCredentials = null
         reportScheduled = false
         listener.onStatus("A ligar a ${item.name} (modo somente leitura)…")
         gatt?.close()
@@ -175,7 +184,7 @@ class BleCaptureManager(
 
         @Suppress("DEPRECATION")
         override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
-            recordNotification(characteristic, characteristic.value ?: byteArrayOf())
+            recordNotification(gatt, characteristic, characteristic.value ?: byteArrayOf())
         }
 
         override fun onCharacteristicChanged(
@@ -183,7 +192,7 @@ class BleCaptureManager(
             characteristic: BluetoothGattCharacteristic,
             value: ByteArray
         ) {
-            recordNotification(characteristic, value)
+            recordNotification(gatt, characteristic, value)
         }
 
         override fun onDescriptorWrite(gatt: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
@@ -263,7 +272,7 @@ class BleCaptureManager(
         }, 700L)
     }
 
-    private fun recordNotification(characteristic: BluetoothGattCharacteristic, value: ByteArray) {
+    private fun recordNotification(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, value: ByteArray) {
         if (value.isEmpty()) return
         notificationCharacteristics += characteristic.uuid.toString()
         rawNotificationHex += bytesToHex(value) ?: ""
@@ -286,7 +295,73 @@ class BleCaptureManager(
             if (notificationBuffer.size < total) return
             val frame = notificationBuffer.copyOfRange(0, total)
             notificationBuffer = notificationBuffer.copyOfRange(total, notificationBuffer.size)
-            Encryption2Probe.parsePreCommFrame(frame, item.name)?.let { preComm = it }
+            if (preComm == null) {
+                Encryption2Probe.parsePreCommFrame(frame, item.name)?.let {
+                    preComm = it
+                    startReadOnlyAuthentication(gatt, it, item)
+                }
+            } else if (authenticationAttempted) {
+                val credentials = activeCredentials
+                if (credentials != null) {
+                    Encryption2Probe.parseAuthFrame(
+                        frame,
+                        item.name,
+                        credentials.passwordHex,
+                        preComm!!.authParameterHex
+                    )?.let {
+                        authenticated = it.accepted
+                        authenticationNote = if (it.accepted) {
+                            "Sessão autenticada em modo de leitura; nenhuma operação de configuração foi enviada."
+                        } else {
+                            "A scooter respondeu ao AUTH, mas não aceitou a sessão de leitura."
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun startReadOnlyAuthentication(gatt: BluetoothGatt, result: PreCommResult, item: ScannedScooter) {
+        if (authenticationAttempted) return
+        val credentials = credentialStore.load()
+        if (credentials == null) {
+            authenticationNote = "Sem credencial local; o PRE_COMM foi recebido, mas não foi tentada autenticação."
+            return
+        }
+        if (result.index == 0) {
+            authenticationNote = "A scooter indica que não tem palavra-passe guardada; a app não executa SET_PWD automaticamente."
+            return
+        }
+        if (result.reportedSerial != null && !result.reportedSerial.equals(credentials.serialNumber, ignoreCase = false)) {
+            authenticationNote = "A credencial local pertence a outro número de série; autenticação recusada por segurança."
+            return
+        }
+        val characteristic = gatt.getService(customNinebotService)?.characteristics
+            ?.firstOrNull { it.uuid.toString().endsWith("0002-0000-0000-006e-696e65626f74") }
+        if (characteristic == null || characteristic.properties and BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE == 0) {
+            authenticationNote = "A resposta PRE_COMM chegou, mas o canal de escrita autenticado não está disponível."
+            return
+        }
+        val frame = Encryption2Probe.buildAuthFrame(
+            item.name,
+            credentials.passwordHex,
+            result.authParameterHex,
+            result.reportedSerial ?: credentials.serialNumber
+        )
+        authenticationAttempted = true
+        activeCredentials = credentials
+        authenticationNote = "A enviar apenas AUTH de leitura; não será enviado SET_PWD."
+        characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+        writeFrameFragmented(gatt, characteristic, frame)
+    }
+
+    private fun writeFrameFragmented(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, frame: ByteArray) {
+        val chunks = frame.toList().chunked(20).map { it.toByteArray() }
+        chunks.forEachIndexed { index, chunk ->
+            mainHandler.postDelayed({
+                characteristic.value = chunk
+                gatt.writeCharacteristic(characteristic)
+            }, index * 40L)
         }
     }
 
@@ -305,7 +380,7 @@ class BleCaptureManager(
             }
             listener.onCaptureReady(CaptureReport(
                 capturedAtUtc = CaptureReport.nowUtc(),
-                appVersion = "0.1.3",
+                appVersion = "0.1.4",
                 androidVersion = "${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})",
                 deviceName = item.name,
                 deviceAddress = item.device.address,
@@ -319,6 +394,9 @@ class BleCaptureManager(
                     requestHex = probeRequestHex,
                     rawNotificationHex = rawNotificationHex.toList(),
                     preComm = preComm,
+                    authenticationAttempted = authenticationAttempted,
+                    authenticated = authenticated,
+                    authenticationNote = authenticationNote,
                     note = if (probeAttempted) {
                         "Only notification subscriptions and an unauthenticated PRE_COMM diagnostic probe were used; no profile, speed, credential, or firmware change was requested."
                     } else {
