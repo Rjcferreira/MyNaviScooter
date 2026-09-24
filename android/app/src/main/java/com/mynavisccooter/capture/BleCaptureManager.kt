@@ -56,8 +56,10 @@ class BleCaptureManager(
                 }
             }
             val name = result.scanRecord?.deviceName ?: runCatching { device.name }.getOrNull() ?: "Sem nome"
-            val model = ModelProfiles.fromAdvertisement(name, data.values.firstOrNull() ?: "")
-            val x3Signature = data.values.any { it.contains("4E430100020000FC", ignoreCase = true) }
+            val manufacturerFingerprint = data.entries.joinToString("") { it.key + it.value }
+            val model = ModelProfiles.fromAdvertisement(name, manufacturerFingerprint)
+            val x3Signature = manufacturerFingerprint.contains("4E430100020000FC", ignoreCase = true) ||
+                manufacturerFingerprint.contains("434E0100020000FC", ignoreCase = true)
             val serialLikeName = name.matches(Regex("1K1[A-Z0-9]{6,}"))
             if (model != ModelProfiles.UNKNOWN || x3Signature || serialLikeName || name.contains("segway", true) || name.contains("ninebot", true)) {
                 devices[device.address] = ScannedScooter(device, name, result.rssi, data, model)

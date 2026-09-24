@@ -21,8 +21,10 @@ object ModelProfiles {
             n.contains("zt3") -> ZT3_PRO
             n.contains("f3") -> F3_PRO
             n.contains("gt3") -> GT3
-            // The X3 manufacturer signature is useful even when Android hides the name.
-            manufacturerHex.contains("4E430100020000FC") -> UNKNOWN
+            // Android exposes the company ID and payload separately. The complete
+            // X3 signature is 0x4E43 + 0100020000FC; some devices expose it as 434E.
+            manufacturerHex.contains("4E430100020000FC") ||
+                manufacturerHex.contains("434E0100020000FC") -> ZT3_PRO
             else -> UNKNOWN
         }
     }
