@@ -286,7 +286,7 @@ class BleCaptureManager(
             }
             listener.onCaptureReady(CaptureReport(
                 capturedAtUtc = CaptureReport.nowUtc(),
-                appVersion = "0.1.2",
+                appVersion = "0.1.3",
                 androidVersion = "${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})",
                 deviceName = item.name,
                 deviceAddress = item.device.address,
