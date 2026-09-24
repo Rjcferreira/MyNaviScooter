@@ -19,6 +19,14 @@ data class ServiceCapture(
     val characteristics: List<CharacteristicCapture>
 )
 
+data class ProtocolProbeCapture(
+    val attempted: Boolean,
+    val notificationCharacteristics: List<String>,
+    val rawNotificationHex: List<String>,
+    val preComm: PreCommResult?,
+    val note: String
+)
+
 data class CaptureReport(
     val capturedAtUtc: String,
     val appVersion: String,
@@ -29,6 +37,7 @@ data class CaptureReport(
     val manufacturerData: Map<String, String>,
     val model: ModelProfile,
     val services: List<ServiceCapture>,
+    val protocolProbe: ProtocolProbeCapture?,
     val safety: Map<String, Any>
 ) {
     fun toJson(): String {
@@ -57,6 +66,13 @@ data class CaptureReport(
             "{\"uuid\":\"${esc(service.uuid)}\",\"characteristics\":$chars}"
         }
 
+        val probeJson = protocolProbe?.let { probe ->
+            val preComm = probe.preComm?.let { p ->
+                "{\"index\":${p.index},\"authParameterHex\":\"${esc(p.authParameterHex)}\",\"reportedSerial\":${p.reportedSerial?.let { "\"${esc(it)}\"" } ?: "null"},\"frameHex\":\"${esc(p.frameHex)}\"}"
+            } ?: "null"
+            "{\"attempted\":${probe.attempted},\"notificationCharacteristics\":${probe.notificationCharacteristics.joinToString(",", "[", "]") { "\"${esc(it)}\"" }},\"rawNotificationHex\":${probe.rawNotificationHex.joinToString(",", "[", "]") { "\"${esc(it)}\"" }},\"preComm\":$preComm,\"note\":\"${esc(probe.note)}\"}"
+        } ?: "null"
+
         return """
             {
               "schema":"mynavi-scooter-capture/v1",
@@ -69,7 +85,8 @@ data class CaptureReport(
               "manufacturerData":${mapJson(manufacturerData)},
               "model":$modelJson,
               "services":$serviceJson,
-              "safety":{"readOnly":true,"writesPerformed":false,"firmwareFlashed":false,"note":"Initial BLE/GATT capture only; no scooter configuration was changed."}
+              "protocolProbe":$probeJson,
+              "safety":{"readOnly":true,"configurationWritesPerformed":false,"firmwareFlashed":false,"note":"Only GATT notification subscriptions and an unauthenticated diagnostic probe may have been used; no scooter profile, speed, credential, or firmware configuration was changed."}
             }
         """.trimIndent()
     }

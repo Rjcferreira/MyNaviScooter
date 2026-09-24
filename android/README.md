@@ -9,9 +9,10 @@ Esta é a primeira fase real da app: captura BLE somente de leitura para a Segwa
 - reconhece os perfis ZT3/F3/GT3 quando o nome está disponível;
 - liga à scooter e descobre serviços GATT;
 - lê apenas características que anunciam a propriedade `READ`;
+- subscreve notificações BLE e envia apenas o probe não autenticado `PRE_COMM` para identificar a resposta do protocolo X3;
 - exporta um JSON de diagnóstico com serviços, características, valores legíveis, RSSI e fabricante;
 - aceita uma URI `segway://credentials?...` e guarda a credencial de sessão cifrada no Android para a futura autenticação;
-- não executa comandos `WRITE`, não faz flash e não altera velocidade/perfis.
+- não envia comandos de configuração `WRITE`, não faz flash e não altera velocidade/perfis. A subscrição GATT e o probe de diagnóstico não modificam a configuração da scooter.
 
 ## Abrir e instalar
 
