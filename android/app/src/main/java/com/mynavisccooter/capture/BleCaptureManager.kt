@@ -56,6 +56,7 @@ class BleCaptureManager(
     private val mainHandler = Handler(Looper.getMainLooper())
 
     private val customNinebotService = UUID.fromString("6e400001-0000-0000-006e-696e65626f74")
+    private val nordicUartService = UUID.fromString("6e400001-b5a3-f393-e0a9-e50e24dcca9e")
     private val cccdUuid = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
 
     private val scanCallback = object : ScanCallback() {
@@ -241,7 +242,25 @@ class BleCaptureManager(
             return
         }
         // A resposta chega por notify/indicate. Dá tempo para a receber antes de exportar.
-        mainHandler.postDelayed({ readNext(gatt) }, 700L)
+        mainHandler.postDelayed({
+            if (preComm == null) {
+                val fallback = gatt.getService(nordicUartService)?.characteristics
+                    ?.firstOrNull { it.uuid.toString().endsWith("0002-b5a3-f393-e0a9-e50e24dcca9e") }
+                if (fallback != null && fallback.properties and BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE != 0) {
+                    val fallbackFrame = Encryption2Probe.buildPreCommFrame(item.name)
+                    probeRequestHex = bytesToHex(fallbackFrame)
+                    fallback.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                    fallback.value = fallbackFrame
+                    listener.onStatus("Sem resposta no canal custom; a testar o canal BLE compatível…")
+                    gatt.writeCharacteristic(fallback)
+                    mainHandler.postDelayed({ readNext(gatt) }, 700L)
+                } else {
+                    readNext(gatt)
+                }
+            } else {
+                readNext(gatt)
+            }
+        }, 700L)
     }
 
     private fun recordNotification(characteristic: BluetoothGattCharacteristic, value: ByteArray) {
