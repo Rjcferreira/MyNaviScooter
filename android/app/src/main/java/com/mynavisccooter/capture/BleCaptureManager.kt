@@ -40,6 +40,7 @@ class BleCaptureManager(
     private val devices = linkedMapOf<String, ScannedScooter>()
     private var gatt: BluetoothGatt? = null
     private var selected: ScannedScooter? = null
+    private var scanning = false
     private var readQueue: MutableList<BluetoothGattCharacteristic> = mutableListOf()
     private val readValues = linkedMapOf<String, ByteArray>()
 
@@ -56,13 +57,16 @@ class BleCaptureManager(
             }
             val name = result.scanRecord?.deviceName ?: runCatching { device.name }.getOrNull() ?: "Sem nome"
             val model = ModelProfiles.fromAdvertisement(name, data.values.firstOrNull() ?: "")
-            if (model != ModelProfiles.UNKNOWN || name.contains("segway", true) || name.contains("ninebot", true)) {
+            val x3Signature = data.values.any { it.contains("4E430100020000FC", ignoreCase = true) }
+            val serialLikeName = name.matches(Regex("1K1[A-Z0-9]{6,}"))
+            if (model != ModelProfiles.UNKNOWN || x3Signature || serialLikeName || name.contains("segway", true) || name.contains("ninebot", true)) {
                 devices[device.address] = ScannedScooter(device, name, result.rssi, data, model)
                 listener.onDevicesChanged(devices.values.toList())
             }
         }
 
         override fun onScanFailed(errorCode: Int) {
+            scanning = false
             listener.onStatus("Falha no scan BLE: código $errorCode")
         }
     }
@@ -72,14 +76,20 @@ class BleCaptureManager(
             listener.onStatus("Permissão Bluetooth necessária")
             return
         }
+        if (scanning) {
+            listener.onStatus("Scan BLE já está ativo. Aguarda alguns segundos…")
+            return
+        }
         devices.clear()
         listener.onDevicesChanged(emptyList())
         scanner?.startScan(scanCallback)
+        scanning = true
         listener.onStatus("A procurar ZT3/F3/GT3…")
     }
 
     fun stopScan() {
-        if (hasScanPermission()) scanner?.stopScan(scanCallback)
+        if (scanning && hasScanPermission()) scanner?.stopScan(scanCallback)
+        scanning = false
     }
 
     fun connect(item: ScannedScooter) {
