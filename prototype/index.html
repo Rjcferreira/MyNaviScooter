@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MyNaviScooter</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="app-shell">
+    <header class="topbar">
+      <div>
+        <h1>MyNavi<span>Scooter</span></h1>
+        <p>MAIS LIBERDADE EM CADA TRAJETO</p>
+      </div>
+      <button class="icon-btn" aria-label="Abrir definições">⚙</button>
+    </header>
+
+    <nav class="main-nav" aria-label="Navegação principal">
+      <button class="nav-item active" data-view="dashboard">Dashboard</button>
+      <button class="nav-item" data-view="navigation">Navegação</button>
+      <button class="nav-item" data-view="backup">Backup</button>
+      <button class="nav-item" data-view="advanced">Avançado</button>
+    </nav>
+
+    <div id="dashboardContent">
+
+    <section class="hero">
+      <div class="hero-copy"><h2>Boa viagem!</h2><p>Scooter pronta<br />para rodar.</p></div>
+      <div class="connection-card"><div class="bt">⌁</div><div><strong id="connectionTitle">Conectado</strong><small id="heartbeat">Verificação em 00:27</small></div><div class="pulse">⌁⌁</div></div>
+    </section>
+
+    <section class="gauge-area">
+      <div class="gauge"><div class="gauge-label">VELOCIDADE</div><strong id="speed">32</strong><small>km/h</small></div>
+      <button class="sport-pill" id="sportBtn"><b>ϟ</b><span><strong id="sportTitle">Sport temporário</strong><small id="sportSubtitle">DESEMPENHO E RESPOSTA ELEVADOS</small></span><em>›</em></button>
+    </section>
+
+    <section class="stats"><div><strong>78%</strong><small>BATERIA<br />~ 32 km restantes</small></div><div><strong>12,4 km</strong><small>DISTÂNCIA<br />00:28 h · TEMPO DE VIAGEM</small></div></section>
+
+    <section class="status" id="status"><b>✓</b><strong id="statusTitle">Tudo certo!</strong><span id="statusText">Scooter conectada e operando normalmente.</span></section>
+    <button class="restore" id="restoreBtn"><b>↶</b><span><strong>Voltar ao original</strong><small>RESTAURA TODAS AS CONFIGURAÇÕES DE FÁBRICA</small></span><em>›</em></button>
+
+    <section class="profiles"><div class="section-title"><span>PERFIS DE USO</span><small>Escolha como quer rodar</small></div><div class="profile-grid"><button class="profile" data-mode="Eco"><b>⌁</b><span><strong>Eco</strong><small>Mais autonomia</small></span><em>›</em></button><button class="profile" data-mode="Drive"><b>╱</b><span><strong>Drive</strong><small>Equilíbrio diário</small></span><em>›</em></button></div></section>
+    </div>
+
+    <section class="extra-view" id="view-navigation"><div class="view-heading"><span>NAVEGAÇÃO</span><small>Rotas pensadas para scooter</small></div><div class="map-card"><div class="map-route"></div><span class="map-dot start"></span><span class="map-dot end"></span><span class="map-label park">Parque Central</span><span class="map-label river">Rio Claro</span><div class="map-search">⌕ &nbsp; Para onde vamos?</div></div><div class="route-summary"><div><strong>Parque Central</strong><small>Rota recomendada · piso regular</small></div><b>12,4 km</b><em>28 min</em></div><button class="primary-action" id="startRoute">▶&nbsp; Iniciar rota segura</button><p class="muted-note">As rotas comunitárias serão adicionadas numa próxima versão, com avaliações de piso, inclinação e zonas a evitar.</p></section>
+
+    <section class="extra-view" id="view-backup"><div class="view-heading"><span>BACKUP ORIGINAL</span><small>Proteção antes de alterar</small></div><div class="backup-panel"><div class="backup-icon">✓</div><h2 id="backupTitle">Backup verificado</h2><p id="backupText">Estado original guardado e associado a este controlador.</p><div class="backup-lines"><span>Modelo <b>Segway/Ninebot · Demo</b></span><span>Eco / Drive <b>Originais</b></span><span>Sport original <b>22 km/h</b></span><span>Checksum <b>MS-7F2A-91C0</b></span></div></div><button class="primary-action" id="backupBtn">↻&nbsp; Criar novo backup</button><button class="secondary-action" id="restoreFullBtn">Restaurar estado original completo</button><p class="muted-note">Nenhuma alteração de firmware é feita neste protótipo. Na versão real, cada backup será validado contra o modelo e o controlador.</p></section>
+
+    <section class="extra-view" id="view-advanced"><div class="view-heading"><span>MODO AVANÇADO</span><small>Somente após backup válido</small></div><div class="advanced-panel"><div class="advanced-row"><span>Sport temporário</span><label class="switch"><input id="sportSwitch" type="checkbox" checked><i></i></label></div><div class="advanced-row"><span>Heartbeat Bluetooth</span><strong class="green">Ativo · 1 s</strong></div><div class="advanced-row"><span>Fallback ao desligar</span><strong>Sport original · 22 km/h</strong></div><div class="advanced-row"><span>Eco e Drive</span><strong>Protegidos</strong></div></div><div class="warning-panel">⚠&nbsp; Os valores de potência e velocidade só serão editáveis quando o modelo e o firmware forem validados.</div><button class="secondary-action" id="languageBtn">Idioma: Português · English · Deutsch</button></section>
+
+    <footer><span>🛴 <strong>MyNavi<span>Scooter</span></strong><small>TECNOLOGIA PARA UM MUNDO EM MOVIMENTO</small></span><button class="settings">⚙ Configurações</button></footer>
+  </main>
+  <div class="toast" id="toast" role="status"></div>
+  <script src="app.js"></script>
+</body>
+</html>
