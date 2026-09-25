@@ -166,7 +166,7 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
         val permissions = if (Build.VERSION.SDK_INT >= 31) arrayOf(
             Manifest.permission.BLUETOOTH_SCAN,
             Manifest.permission.BLUETOOTH_CONNECT
-        ) else arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+        ) else arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
         val missing = permissions.filter { ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
         if (missing.isNotEmpty()) ActivityCompat.requestPermissions(this, missing.toTypedArray(), PERMISSIONS_REQUEST)
     }
