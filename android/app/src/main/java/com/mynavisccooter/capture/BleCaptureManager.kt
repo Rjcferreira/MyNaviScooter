@@ -24,7 +24,6 @@ class BleCaptureManager(private val context: Context, private val listener: List
         fun onStatus(message: String)
         fun onDevicesChanged(devices: List<ScannedScooter>)
         fun onCaptureReady(report: CaptureReport)
-        fun onPhysicalAuthorizationRequired()
     }
     private val adapter = context.getSystemService(BluetoothManager::class.java)?.adapter
     private val main = Handler(Looper.getMainLooper())
@@ -46,8 +45,6 @@ class BleCaptureManager(private val context: Context, private val listener: List
     private var authAttempted = false
     private var authenticated = false
     private var authNote = "Autenticação de leitura não iniciada."
-    private var pendingPreComm: PreCommResult? = null
-    private var pendingAuthorizationGatt: BluetoothGatt? = null
     private var services: List<ServiceCapture> = emptyList()
     private val events = mutableListOf<String>()
     private val notifications = mutableListOf<String>()
@@ -238,12 +235,11 @@ class BleCaptureManager(private val context: Context, private val listener: List
             event("frame bytes=${frame.size} precommValid=${parsed != null}")
             if (parsed != null) {
                 result = parsed
-                pendingPreComm = parsed
-                pendingAuthorizationGatt = g
-                arm("button", 30000L)
-                event("physical_authorization_required")
-                listener.onStatus("Prime uma vez o botão de ligar/desligar da scooter para autorizar a ligação.")
-                listener.onPhysicalAuthorizationRequired()
+                if (phase != "precomm") {
+                    event("duplicate_precomm_ignored")
+                    continue
+                }
+                beginReadOnlyAuth(g, parsed)
                 return
             }
             if (authAttempted) {
@@ -258,16 +254,6 @@ class BleCaptureManager(private val context: Context, private val listener: List
         }
     }
 
-    fun continueAfterPhysicalAuthorization() {
-        val connection = pendingAuthorizationGatt
-        val pre = pendingPreComm
-        if (connection == null || pre == null || reported) return
-        event("physical_authorization_confirmed")
-        pendingAuthorizationGatt = null
-        pendingPreComm = null
-        beginReadOnlyAuth(connection, pre)
-    }
-
     private fun beginReadOnlyAuth(g: BluetoothGatt, pre: PreCommResult) {
         if (pre.index == 0) {
             authNote = "A scooter não indica password guardada; SET_PWD não é executado automaticamente."
@@ -276,7 +262,7 @@ class BleCaptureManager(private val context: Context, private val listener: List
         }
         val credentials = credentialStore.load()
         if (credentials == null) {
-            authNote = "PRE_COMM recebido. Não existe credencial local; AUTH não foi tentado."
+            authNote = "Ligação BLE confirmada. Falta emparelhamento compatível com esta scooter: não existe credencial local. Nenhum pedido de autorização física foi enviado; premir o botão não substitui o protocolo de emparelhamento."
             finish("precomm_received_no_credential")
             return
         }

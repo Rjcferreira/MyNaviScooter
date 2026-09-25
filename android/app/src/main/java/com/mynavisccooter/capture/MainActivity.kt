@@ -56,7 +56,7 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
         val scan = Button(this).apply { text = "Procurar scooters"; setOnClickListener {
             latestReport = null
             exportButton.isEnabled = false
-            showPairingAssistDialog { ble.startScan() }
+            ble.startScan()
         } }
         root.addView(scan, LinearLayout.LayoutParams(-1, -2).apply { topMargin = 20 })
 
@@ -112,7 +112,11 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
     override fun onCaptureReady(report: CaptureReport) {
         latestReport = report
         runOnUiThread {
-            status.text = "Resultado: ${report.outcome}. Exporta o diagnóstico com o registo de todas as etapas."
+            status.text = if (report.outcome == "precomm_received_no_credential") {
+                "Bluetooth ligado e resposta recebida. O emparelhamento inicial ainda não está implementado para esta scooter. Não precisas de premir o botão nem repetir a captura."
+            } else {
+                "Resultado: ${report.outcome}. Exporta o diagnóstico com o registo de todas as etapas."
+            }
             exportButton.isEnabled = true
             Toast.makeText(this, "Diagnóstico pronto", Toast.LENGTH_LONG).show()
         }
@@ -149,34 +153,6 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
                     Toast.makeText(this, "Credencial inválida: ${it.message}", Toast.LENGTH_LONG).show()
                 }
             }
-            .show()
-    }
-
-    override fun onPhysicalAuthorizationRequired() {
-        runOnUiThread {
-            AlertDialog.Builder(this)
-                .setTitle("Autorizar scooter")
-                .setMessage("Prime agora uma vez o botão de ligar/desligar da scooter. Depois toque em Continuar para a app prosseguir com a ligação de leitura.")
-                .setNegativeButton("Cancelar", null)
-                .setPositiveButton("Continuar") { _, _ ->
-                    ble.continueAfterPhysicalAuthorization()
-                }
-                .show()
-        }
-    }
-
-    private fun showPairingAssistDialog(onContinue: () -> Unit) {
-        AlertDialog.Builder(this)
-            .setTitle("Emparelhamento assistido")
-            .setMessage(
-                "Para a primeira ligação, a scooter pode exigir uma confirmação física.\n\n" +
-                    "1. Fecha a app oficial e liga a scooter.\n" +
-                    "2. Mantém o telemóvel perto da scooter.\n" +
-                    "3. Quando for pedido, prime uma vez o botão de ligar/desligar.\n\n" +
-                    "Esta versão apenas regista o handshake BLE e não altera velocidade, perfis, firmware ou credenciais. A confirmação física pode alterar o vínculo Bluetooth da scooter."
-            )
-            .setNegativeButton("Cancelar", null)
-            .setPositiveButton("Continuar") { _, _ -> onContinue() }
             .show()
     }
 
