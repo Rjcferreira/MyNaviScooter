@@ -1,13 +1,7 @@
 package com.mynavisccooter.capture
 
 import android.Manifest
-import android.bluetooth.BluetoothAdapter
-import android.bluetooth.BluetoothDevice
-import android.bluetooth.BluetoothGatt
-import android.bluetooth.BluetoothGattCallback
-import android.bluetooth.BluetoothGattCharacteristic
-import android.bluetooth.BluetoothGattDescriptor
-import android.bluetooth.BluetoothManager
+import android.bluetooth.*
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult
 import android.content.Context
@@ -15,465 +9,253 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import androidx.core.content.ContextCompat
 import java.util.UUID
 
-data class ScannedScooter(
-    val device: BluetoothDevice,
-    val name: String,
-    val rssi: Int,
-    val manufacturerData: Map<String, String>,
-    val model: ModelProfile
-)
+data class ScannedScooter(val device: BluetoothDevice, val name: String, val rssi: Int,
+    val manufacturerData: Map<String, String>, val model: ModelProfile)
 
-class BleCaptureManager(
-    private val context: Context,
-    private val listener: Listener
-) {
+/** Serialized, bounded PRE_COMM capture. No pairing/password or configuration writes. */
+@Suppress("DEPRECATION", "MissingPermission")
+@android.annotation.SuppressLint("MissingPermission")
+class BleCaptureManager(private val context: Context, private val listener: Listener) {
     interface Listener {
         fun onStatus(message: String)
         fun onDevicesChanged(devices: List<ScannedScooter>)
         fun onCaptureReady(report: CaptureReport)
     }
-
-    private val bluetoothManager = context.getSystemService(BluetoothManager::class.java)
-    private val adapter: BluetoothAdapter? get() = bluetoothManager?.adapter
-    private val scanner get() = adapter?.bluetoothLeScanner
+    private val adapter = context.getSystemService(BluetoothManager::class.java)?.adapter
+    private val main = Handler(Looper.getMainLooper())
     private val devices = linkedMapOf<String, ScannedScooter>()
+    private val serviceId = UUID.fromString("6e400001-b5a3-f393-e0a9-e50e24dcca9e")
+    private val txId = UUID.fromString("6e400002-b5a3-f393-e0a9-e50e24dcca9e")
+    private val rxId = UUID.fromString("6e400003-b5a3-f393-e0a9-e50e24dcca9e")
+    private val cccdId = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
     private var gatt: BluetoothGatt? = null
     private var selected: ScannedScooter? = null
     private var scanning = false
-    private var readQueue: MutableList<BluetoothGattCharacteristic> = mutableListOf()
-    private val readValues = linkedMapOf<String, ByteArray>()
-    private val notificationQueue: MutableList<BluetoothGattCharacteristic> = mutableListOf()
-    private val notificationCharacteristics = mutableListOf<String>()
-    private val rawNotificationHex = mutableListOf<String>()
-    private var notificationBuffer = ByteArray(0)
-    private var preComm: PreCommResult? = null
-    private var probeRequestHex: String? = null
-    private var probeAttempted = false
-    private var authenticationAttempted = false
-    private var authenticated = false
-    private var authenticationNote = "Autenticação de leitura não iniciada."
-    private var activeCredentials: SessionCredentials? = null
-    private var reportScheduled = false
-    private var mtuRequested = false
-    private val mainHandler = Handler(Looper.getMainLooper())
-    private val credentialStore = EncryptedCredentialStore(context)
+    private var phase = "idle"
+    private var started = 0L
+    private var timeout: Runnable? = null
+    private var reported = false
+    private var attempted = false
+    private var requestHex: String? = null
+    private var result: PreCommResult? = null
+    private var services: List<ServiceCapture> = emptyList()
+    private val events = mutableListOf<String>()
+    private val notifications = mutableListOf<String>()
+    private val subscribed = mutableListOf<String>()
+    private val frames = ProbeFrameBuffer()
 
-    private val customNinebotService = UUID.fromString("6e400001-0000-0000-006e-696e65626f74")
-    private val nordicUartService = UUID.fromString("6e400001-b5a3-f393-e0a9-e50e24dcca9e")
-    private val cccdUuid = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
-
+    private fun event(message: String) {
+        if (events.size < 200) events += "${SystemClock.elapsedRealtime() - started}ms $message"
+    }
+    private fun arm(stage: String, milliseconds: Long = 10000L) {
+        timeout?.let(main::removeCallbacks)
+        phase = stage
+        timeout = Runnable { finish("timeout_$stage") }.also { main.postDelayed(it, milliseconds) }
+    }
+    private fun active(connection: BluetoothGatt, action: () -> Unit) {
+        main.post { if (gatt === connection && !reported) action() }
+    }
     private val scanCallback = object : ScanCallback() {
-        override fun onScanResult(callbackType: Int, result: ScanResult) {
-            val device = result.device
-            val manufacturer = result.scanRecord?.manufacturerSpecificData
-            val data = linkedMapOf<String, String>()
-            if (manufacturer != null) {
-                for (i in 0 until manufacturer.size()) {
-                    val key = "%04X".format(manufacturer.keyAt(i))
-                    bytesToHex(manufacturer.valueAt(i))?.let { data[key] = it }
+        override fun onScanResult(callbackType: Int, scan: ScanResult) {
+            main.post {
+                if (!scanning) return@post
+                val manufacturer = linkedMapOf<String, String>()
+                scan.scanRecord?.manufacturerSpecificData?.let { data ->
+                    for (i in 0 until data.size()) manufacturer["%04X".format(data.keyAt(i))] = bytesToHex(data.valueAt(i)) ?: ""
+                }
+                val name = scan.scanRecord?.deviceName ?: runCatching { scan.device.name }.getOrNull() ?: "Sem nome"
+                val model = ModelProfiles.fromAdvertisement(name, manufacturer.entries.joinToString("") { it.key + it.value })
+                if (model != ModelProfiles.UNKNOWN || name.startsWith("1K1") || name.contains("segway", true) || name.contains("ninebot", true)) {
+                    devices[scan.device.address] = ScannedScooter(scan.device, name, scan.rssi, manufacturer, model)
+                    listener.onDevicesChanged(devices.values.toList())
                 }
             }
-            val name = result.scanRecord?.deviceName ?: runCatching { device.name }.getOrNull() ?: "Sem nome"
-            val manufacturerFingerprint = data.entries.joinToString("") { it.key + it.value }
-            val model = ModelProfiles.fromAdvertisement(name, manufacturerFingerprint)
-            val x3Signature = manufacturerFingerprint.contains("4E430100020000FC", ignoreCase = true) ||
-                manufacturerFingerprint.contains("434E0100020000FC", ignoreCase = true)
-            val serialLikeName = name.matches(Regex("1K1[A-Z0-9]{6,}"))
-            if (model != ModelProfiles.UNKNOWN || x3Signature || serialLikeName || name.contains("segway", true) || name.contains("ninebot", true)) {
-                devices[device.address] = ScannedScooter(device, name, result.rssi, data, model)
-                listener.onDevicesChanged(devices.values.toList())
-            }
         }
-
         override fun onScanFailed(errorCode: Int) {
-            scanning = false
-            listener.onStatus("Falha no scan BLE: código $errorCode")
+            main.post { scanning = false; listener.onStatus("Falha no scan BLE: código $errorCode") }
         }
     }
-
     fun startScan() {
-        if (!hasScanPermission()) {
-            listener.onStatus("Permissão Bluetooth necessária")
-            return
-        }
-        if (scanning) {
-            listener.onStatus("Scan BLE já está ativo. Aguarda alguns segundos…")
-            return
-        }
+        if (!hasScanPermission() || !hasConnectPermission()) { listener.onStatus("Permissão Bluetooth necessária"); return }
+        if (adapter?.isEnabled != true) { listener.onStatus("Ativa o Bluetooth do telemóvel."); return }
+        if (scanning) return
+        close()
         devices.clear()
         listener.onDevicesChanged(emptyList())
-        scanner?.startScan(scanCallback)
+        val scanner = adapter?.bluetoothLeScanner ?: return
         scanning = true
-        listener.onStatus("A procurar ZT3/F3/GT3…")
+        runCatching { scanner.startScan(scanCallback) }.onFailure {
+            scanning = false
+            listener.onStatus("Não foi possível iniciar o scan: ${it.javaClass.simpleName}")
+        }
+        if (scanning) {
+            listener.onStatus("A procurar scooters…")
+            main.postDelayed({ stopScan() }, 20000L)
+        }
     }
-
     fun stopScan() {
-        if (scanning && hasScanPermission()) scanner?.stopScan(scanCallback)
+        if (scanning && hasScanPermission()) runCatching { adapter?.bluetoothLeScanner?.stopScan(scanCallback) }
         scanning = false
     }
-
     fun connect(item: ScannedScooter) {
-        if (!hasConnectPermission()) {
-            listener.onStatus("Permissão de ligação Bluetooth necessária")
-            return
-        }
-        stopScan()
+        if (!hasConnectPermission()) { listener.onStatus("Permissão de ligação Bluetooth necessária"); return }
+        close()
         selected = item
-        readValues.clear()
-        notificationQueue.clear()
-        notificationCharacteristics.clear()
-        rawNotificationHex.clear()
-        notificationBuffer = ByteArray(0)
-        preComm = null
-        probeRequestHex = null
-        probeAttempted = false
-        authenticationAttempted = false
-        authenticated = false
-        authenticationNote = "Autenticação de leitura não iniciada."
-        activeCredentials = null
-        reportScheduled = false
-        mtuRequested = false
-        listener.onStatus("A ligar a ${item.name} (modo somente leitura)…")
-        gatt?.close()
-        gatt = item.device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
+        events.clear(); notifications.clear(); subscribed.clear(); frames.clear()
+        services = emptyList(); result = null; requestHex = null
+        attempted = false; reported = false
+        started = SystemClock.elapsedRealtime()
+        event("build=${BuildConfig.VERSION_NAME} revision=${BuildConfig.REVISION}")
+        listener.onStatus("A ligar a ${item.name}…")
+        arm("connect", 15000L)
+        runCatching {
+            gatt = item.device.connectGatt(context, false, callback, BluetoothDevice.TRANSPORT_LE)
+        }.onFailure { event("connect_exception=${it.javaClass.simpleName}"); finish("connect_failed") }
     }
-
     fun close() {
         stopScan()
-        gatt?.close()
+        main.removeCallbacksAndMessages(null)
+        timeout = null
+        val old = gatt
         gatt = null
+        reported = true
+        runCatching { old?.disconnect() }
+        runCatching { old?.close() }
     }
-
-    private val gattCallback = object : BluetoothGattCallback() {
-        override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
-            if (newState == BluetoothGatt.STATE_CONNECTED && status == BluetoothGatt.GATT_SUCCESS) {
-                listener.onStatus("Ligado. A descobrir serviços…")
-                gatt.discoverServices()
-            } else if (newState == BluetoothGatt.STATE_DISCONNECTED) {
-                listener.onStatus("Bluetooth desligado da scooter")
-            } else if (status != BluetoothGatt.GATT_SUCCESS) {
-                listener.onStatus("Falha BLE: estado $status")
+    private val callback = object : BluetoothGattCallback() {
+        override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) = active(g) {
+            event("connection status=$status state=$newState")
+            if (status != BluetoothGatt.GATT_SUCCESS) finish("connection_error_$status")
+            else if (newState == BluetoothProfile.STATE_DISCONNECTED) finish("disconnected_$phase")
+            else if (newState == BluetoothProfile.STATE_CONNECTED && phase == "connect") {
+                arm("services")
+                val accepted = g.discoverServices()
+                event("discoverServices accepted=$accepted")
+                if (!accepted) finish("services_rejected")
             }
         }
-
-        override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
-            if (status != BluetoothGatt.GATT_SUCCESS) {
-                listener.onStatus("Não foi possível descobrir os serviços: $status")
-                return
+        override fun onServicesDiscovered(g: BluetoothGatt, status: Int) = active(g) {
+            if (phase != "services") return@active
+            event("services status=$status count=${g.services.size}")
+            services = g.services.map { it.toCapture() }
+            if (status != BluetoothGatt.GATT_SUCCESS) { finish("services_error_$status"); return@active }
+            val service = g.getService(serviceId)
+            if (service?.getCharacteristic(txId) == null || service.getCharacteristic(rxId) == null) {
+                finish("uart_missing"); return@active
             }
-            readQueue = gatt.services.flatMap { it.characteristics }
-                .filter { it.properties and BluetoothGattCharacteristic.PROPERTY_READ != 0 }
-                .toMutableList()
-            val allNotifications = gatt.services
-                .flatMap { it.characteristics }
-                .filter { characteristic ->
-                    val canNotify = characteristic.properties and BluetoothGattCharacteristic.PROPERTY_NOTIFY != 0
-                    val canIndicate = characteristic.properties and BluetoothGattCharacteristic.PROPERTY_INDICATE != 0
-                    (canNotify || canIndicate) && characteristic.getDescriptor(cccdUuid) != null
-                }
-            val standardNotifications = gatt.getService(nordicUartService)?.characteristics
-                ?.filter { it in allNotifications }
-                ?: emptyList()
-            notificationQueue += (standardNotifications.ifEmpty { allNotifications }).distinctBy { it.uuid }
-            listener.onStatus("Serviços encontrados: ${gatt.services.size}. Leituras: ${readQueue.size}; notificações: ${notificationQueue.size}")
-            enableNextNotification(gatt)
+            // Official HCI order: MTU -> CCCD -> PRE_COMM.
+            arm("mtu")
+            val accepted = g.requestMtu(517)
+            event("requestMtu requested=517 accepted=$accepted")
+            if (!accepted) subscribe(g)
         }
-
-        override fun onCharacteristicRead(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, status: Int) {
-            if (status == BluetoothGatt.GATT_SUCCESS) readValues[characteristic.uuid.toString()] = characteristic.value ?: byteArrayOf()
-            readNext(gatt)
+        override fun onMtuChanged(g: BluetoothGatt, mtu: Int, status: Int) = active(g) {
+            event("mtu value=$mtu status=$status")
+            if (phase == "mtu") subscribe(g)
         }
-
-        @Suppress("DEPRECATION")
-        override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
-            recordNotification(gatt, characteristic, characteristic.value ?: byteArrayOf())
+        override fun onDescriptorWrite(g: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) = active(g) {
+            event("cccd callback characteristic=${descriptor.characteristic.uuid} status=$status")
+            if (phase != "cccd" || descriptor.uuid != cccdId || descriptor.characteristic.uuid != rxId) return@active
+            if (status != BluetoothGatt.GATT_SUCCESS) { finish("cccd_error_$status"); return@active }
+            subscribed += rxId.toString()
+            sendProbe(g)
         }
-
-        override fun onCharacteristicChanged(
-            gatt: BluetoothGatt,
-            characteristic: BluetoothGattCharacteristic,
-            value: ByteArray
-        ) {
-            recordNotification(gatt, characteristic, value)
+        override fun onCharacteristicWrite(g: BluetoothGatt, characteristic: BluetoothGattCharacteristic, status: Int) = active(g) {
+            event("write callback characteristic=${characteristic.uuid} status=$status")
+            if (status != BluetoothGatt.GATT_SUCCESS) finish("write_error_$status")
         }
-
-        override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
-            if (status == BluetoothGatt.GATT_SUCCESS) {
-                listener.onStatus("MTU BLE negociado: $mtu bytes")
-            } else {
-                listener.onStatus("MTU BLE não negociado ($status); a continuar…")
-            }
-            sendPreCommProbe(gatt)
+        override fun onCharacteristicChanged(g: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
+            val value = characteristic.value?.clone() ?: return
+            active(g) { receive(characteristic.uuid, value) }
         }
-        override fun onDescriptorWrite(gatt: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
-            if (status != BluetoothGatt.GATT_SUCCESS) {
-                listener.onStatus("Não foi possível ativar uma notificação BLE: $status")
-            }
-            enableNextNotification(gatt)
+        override fun onCharacteristicChanged(g: BluetoothGatt, characteristic: BluetoothGattCharacteristic, value: ByteArray) {
+            val copy = value.clone()
+            active(g) { receive(characteristic.uuid, copy) }
         }
     }
-
-    private fun enableNextNotification(gatt: BluetoothGatt) {
-        val characteristic = notificationQueue.removeFirstOrNull()
-        if (characteristic == null) {
-            if (!mtuRequested) {
-                mtuRequested = true
-                if (gatt.requestMtu(517)) {
-                    listener.onStatus("A negociar MTU BLE com a scooter…")
-                } else {
-                    listener.onStatus("MTU BLE não negociado; a continuar com o valor padrão…")
-                    sendPreCommProbe(gatt)
-                }
-            } else {
-                sendPreCommProbe(gatt)
-            }
-            return
-        }
-
-        val enabled = gatt.setCharacteristicNotification(characteristic, true)
-        if (!enabled) listener.onStatus("Aviso: subscrição BLE recusada para ${characteristic.uuid}")
-        val descriptor = characteristic.getDescriptor(cccdUuid)
-        if (descriptor == null) {
-            enableNextNotification(gatt)
-            return
-        }
-        notificationCharacteristics += characteristic.uuid.toString()
-        descriptor.value = if (characteristic.properties and BluetoothGattCharacteristic.PROPERTY_NOTIFY != 0) {
-            BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+    private fun subscribe(g: BluetoothGatt) {
+        val characteristic = g.getService(serviceId)?.getCharacteristic(rxId)
+        val descriptor = characteristic?.getDescriptor(cccdId)
+        if (characteristic == null || descriptor == null) { finish("cccd_missing"); return }
+        val accepted = g.setCharacteristicNotification(characteristic, true)
+        event("local_subscription accepted=$accepted characteristic=$rxId")
+        if (!accepted) { finish("subscription_rejected"); return }
+        arm("cccd")
+        val writeAccepted = if (Build.VERSION.SDK_INT >= 33) {
+            val code = g.writeDescriptor(descriptor, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
+            event("cccd enqueue status=$code")
+            code == BluetoothStatusCodes.SUCCESS
         } else {
-            BluetoothGattDescriptor.ENABLE_INDICATION_VALUE
+            descriptor.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+            g.writeDescriptor(descriptor)
         }
-        if (!gatt.writeDescriptor(descriptor)) {
-            listener.onStatus("Aviso: não foi possível escrever o descritor BLE ${characteristic.uuid}")
-            enableNextNotification(gatt)
-        }
+        event("cccd accepted=$writeAccepted")
+        if (!writeAccepted) finish("cccd_rejected")
     }
-
-    private fun sendPreCommProbe(gatt: BluetoothGatt) {
-        val item = selected
-        val characteristic = gatt.getService(nordicUartService)?.characteristics
-            ?.firstOrNull { it.uuid.toString().endsWith("0002-b5a3-f393-e0a9-e50e24dcca9e") }
-            ?: gatt.getService(customNinebotService)?.characteristics
-                ?.firstOrNull { it.uuid.toString().endsWith("0002-0000-0000-006e-696e65626f74") }
-        if (item == null || characteristic == null || characteristic.properties and BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE == 0) {
-            listener.onStatus("Probe de protocolo não disponível; a terminar captura somente leitura…")
-            readNext(gatt)
-            return
+    private fun sendProbe(g: BluetoothGatt) {
+        if (attempted) return
+        val tx = g.getService(serviceId)?.getCharacteristic(txId)
+        if (tx == null || tx.properties and BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE == 0) {
+            finish("write_channel_missing"); return
         }
-
-        val frame = Encryption2Probe.buildPreCommFrame(item.name)
-        probeRequestHex = bytesToHex(frame)
-        probeAttempted = true
-        listener.onStatus("A recolher resposta de diagnóstico BLE (sem alterar configurações)…")
-        characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-        characteristic.value = frame
-        if (!gatt.writeCharacteristic(characteristic)) {
-            listener.onStatus("Probe de protocolo recusado; a terminar captura…")
-            readNext(gatt)
-            return
-        }
-        // A resposta chega por notify/indicate. Dá tempo para a receber antes de exportar.
-        mainHandler.postDelayed({
-            continueProbeFallback(gatt, item)
-        }, 700L)
-    }
-
-    private fun continueProbeFallback(gatt: BluetoothGatt, item: ScannedScooter) {
-        if (preComm != null) {
-            readNext(gatt)
-            return
-        }
-        val authChannel = gatt.getService(customNinebotService)?.characteristics
-            ?.firstOrNull { it.uuid.toString().endsWith("0005-0000-0000-006e-696e65626f74") }
-        if (authChannel != null && authChannel.properties and BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE != 0) {
-            val frame = Encryption2Probe.buildPreCommFrame(item.name)
-            probeRequestHex = bytesToHex(frame)
-            authChannel.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-            authChannel.value = frame
-            listener.onStatus("Sem resposta no canal principal; a testar o canal de autenticação X3…")
-            gatt.writeCharacteristic(authChannel)
-            mainHandler.postDelayed({ continueLegacyProbe(gatt, item) }, 700L)
+        val frame = Encryption2Probe.buildPreCommFrame(selected!!.name)
+        attempted = true
+        requestHex = bytesToHex(frame)
+        arm("precomm", 15000L)
+        val accepted = if (Build.VERSION.SDK_INT >= 33) {
+            val code = g.writeCharacteristic(tx, frame, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE)
+            event("precomm enqueue status=$code characteristic=$txId bytes=${frame.size}")
+            code == BluetoothStatusCodes.SUCCESS
         } else {
-            continueLegacyProbe(gatt, item)
+            tx.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+            tx.value = frame
+            g.writeCharacteristic(tx)
+        }
+        event("precomm accepted=$accepted; enqueue is not peer acknowledgement")
+        if (!accepted) { finish("precomm_rejected"); return }
+        listener.onStatus("À espera da scooter (15 s). Se não responder, dá um toque curto no botão para alternar o farol, como no ScooterHacking.")
+    }
+    private fun receive(uuid: UUID, value: ByteArray) {
+        event("notify characteristic=$uuid bytes=${value.size}")
+        if (uuid != rxId || value.isEmpty()) return
+        if (notifications.size >= 64) { finish("notification_limit"); return }
+        notifications += bytesToHex(value) ?: ""
+        for (frame in frames.append(value)) {
+            val parsed = Encryption2Probe.parsePreCommFrame(frame, selected!!.name)
+            event("frame bytes=${frame.size} precommValid=${parsed != null}")
+            if (parsed != null) { result = parsed; finish("precomm_received"); return }
         }
     }
-
-    private fun continueLegacyProbe(gatt: BluetoothGatt, item: ScannedScooter) {
-        if (preComm != null) {
-            readNext(gatt)
-            return
-        }
-        val fallback = gatt.getService(nordicUartService)?.characteristics
-            ?.firstOrNull { it.uuid.toString().endsWith("0002-b5a3-f393-e0a9-e50e24dcca9e") }
-        if (fallback != null && fallback.properties and BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE != 0) {
-            val frame = Encryption2Probe.buildPreCommFrame(item.name)
-            probeRequestHex = bytesToHex(frame)
-            fallback.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-            fallback.value = frame
-            listener.onStatus("Sem resposta no canal de autenticação; a testar o canal BLE compatível…")
-            gatt.writeCharacteristic(fallback)
-        }
-        mainHandler.postDelayed({ readNext(gatt) }, 700L)
-    }
-
-    private fun recordNotification(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, value: ByteArray) {
-        if (value.isEmpty()) return
-        notificationCharacteristics += characteristic.uuid.toString()
-        rawNotificationHex += bytesToHex(value) ?: ""
-        notificationBuffer += value
+    private fun finish(outcome: String) {
+        if (reported) return
+        reported = true
+        timeout?.let(main::removeCallbacks)
+        timeout = null
+        event("complete outcome=$outcome")
+        val connection = gatt
+        gatt = null
+        runCatching { connection?.disconnect() }
+        if (connection != null) Handler(Looper.getMainLooper()).postDelayed({ runCatching { connection.close() } }, 300L)
+        event("disconnect_requested")
         val item = selected ?: return
-        while (true) {
-            val start = notificationBuffer.indexOfFrameHeader()
-            if (start < 0) {
-                notificationBuffer = notificationBuffer.takeLast(2).toByteArray()
-                return
-            }
-            if (start > 0) notificationBuffer = notificationBuffer.copyOfRange(start, notificationBuffer.size)
-            if (notificationBuffer.size < 3) return
-            val length = notificationBuffer[2].toInt() and 0xFF
-            val total = length + 13
-            if (total < 13 || total > 4096) {
-                notificationBuffer = notificationBuffer.copyOfRange(2, notificationBuffer.size)
-                continue
-            }
-            if (notificationBuffer.size < total) return
-            val frame = notificationBuffer.copyOfRange(0, total)
-            notificationBuffer = notificationBuffer.copyOfRange(total, notificationBuffer.size)
-            if (preComm == null) {
-                Encryption2Probe.parsePreCommFrame(frame, item.name)?.let {
-                    preComm = it
-                    startReadOnlyAuthentication(gatt, it, item)
-                }
-            } else if (authenticationAttempted) {
-                val credentials = activeCredentials
-                if (credentials != null) {
-                    Encryption2Probe.parseAuthFrame(
-                        frame,
-                        item.name,
-                        credentials.passwordHex,
-                        preComm!!.authParameterHex
-                    )?.let {
-                        authenticated = it.accepted
-                        authenticationNote = if (it.accepted) {
-                            "Sessão autenticada em modo de leitura; nenhuma operação de configuração foi enviada."
-                        } else {
-                            "A scooter respondeu ao AUTH, mas não aceitou a sessão de leitura."
-                        }
-                    }
-                }
-            }
-        }
+        listener.onCaptureReady(CaptureReport(
+            CaptureReport.nowUtc(), BuildConfig.VERSION_NAME,
+            "${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})",
+            item.name, item.device.address, item.rssi, item.manufacturerData, item.model, services,
+            ProtocolProbeCapture(attempted, subscribed.toList(), requestHex, notifications.toList(), result,
+                false, false, "Captura PRE_COMM; autenticação não executada nesta versão de diagnóstico.",
+                "Only Nordic UART CCCD and PRE_COMM were written. No configuration or pairing changes."),
+            mapOf("readOnly" to true, "configurationWritesPerformed" to false, "firmwareFlashed" to false),
+            events.toList(), outcome
+        ))
     }
-
-    private fun startReadOnlyAuthentication(gatt: BluetoothGatt, result: PreCommResult, item: ScannedScooter) {
-        if (authenticationAttempted) return
-        val credentials = credentialStore.load()
-        if (credentials == null) {
-            authenticationNote = "Sem credencial local; o PRE_COMM foi recebido, mas não foi tentada autenticação."
-            return
-        }
-        if (result.index == 0) {
-            authenticationNote = "A scooter indica que não tem palavra-passe guardada; a app não executa SET_PWD automaticamente."
-            return
-        }
-        if (result.reportedSerial != null && !result.reportedSerial.equals(credentials.serialNumber, ignoreCase = false)) {
-            authenticationNote = "A credencial local pertence a outro número de série; autenticação recusada por segurança."
-            return
-        }
-        val characteristic = gatt.getService(nordicUartService)?.characteristics
-            ?.firstOrNull { it.uuid.toString().endsWith("0002-b5a3-f393-e0a9-e50e24dcca9e") }
-            ?: gatt.getService(customNinebotService)?.characteristics
-                ?.firstOrNull { it.uuid.toString().endsWith("0002-0000-0000-006e-696e65626f74") }
-        if (characteristic == null || characteristic.properties and BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE == 0) {
-            authenticationNote = "A resposta PRE_COMM chegou, mas o canal de escrita autenticado não está disponível."
-            return
-        }
-        val frame = Encryption2Probe.buildAuthFrame(
-            item.name,
-            credentials.passwordHex,
-            result.authParameterHex,
-            result.reportedSerial ?: credentials.serialNumber
-        )
-        authenticationAttempted = true
-        activeCredentials = credentials
-        authenticationNote = "A enviar apenas AUTH de leitura; não será enviado SET_PWD."
-        characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-        writeFrameFragmented(gatt, characteristic, frame)
-    }
-
-    private fun writeFrameFragmented(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, frame: ByteArray) {
-        val chunks = frame.toList().chunked(20).map { it.toByteArray() }
-        chunks.forEachIndexed { index, chunk ->
-            mainHandler.postDelayed({
-                characteristic.value = chunk
-                gatt.writeCharacteristic(characteristic)
-            }, index * 40L)
-        }
-    }
-
-    private fun readNext(gatt: BluetoothGatt) {
-        val next = readQueue.removeFirstOrNull()
-        if (next == null) {
-            if (!probeAttempted && !reportScheduled) {
-                reportScheduled = true
-            }
-            val item = selected ?: return
-            val reportServices = gatt.services.map { service ->
-                ServiceCapture(service.uuid.toString(), service.characteristics.map { c ->
-                    val value = readValues[c.uuid.toString()]
-                    CharacteristicCapture(c.uuid.toString(), c.propertyLabel(), bytesToHex(value), bytesToSafeText(value))
-                })
-            }
-            listener.onCaptureReady(CaptureReport(
-                capturedAtUtc = CaptureReport.nowUtc(),
-                appVersion = "0.1.5",
-                androidVersion = "${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})",
-                deviceName = item.name,
-                deviceAddress = item.device.address,
-                rssi = item.rssi,
-                manufacturerData = item.manufacturerData,
-                model = item.model,
-                services = reportServices,
-                protocolProbe = ProtocolProbeCapture(
-                    attempted = probeAttempted,
-                    notificationCharacteristics = notificationCharacteristics.distinct(),
-                    requestHex = probeRequestHex,
-                    rawNotificationHex = rawNotificationHex.toList(),
-                    preComm = preComm,
-                    authenticationAttempted = authenticationAttempted,
-                    authenticated = authenticated,
-                    authenticationNote = authenticationNote,
-                    note = if (probeAttempted) {
-                        "Only notification subscriptions and an unauthenticated PRE_COMM diagnostic probe were used; no profile, speed, credential, or firmware change was requested."
-                    } else {
-                        "PRE_COMM diagnostic probe was not available on the discovered GATT characteristics."
-                    }
-                ),
-                safety = mapOf(
-                    "readOnly" to true,
-                    "configurationWritesPerformed" to false,
-                    "firmwareFlashed" to false
-                )
-            ))
-            return
-        }
-        gatt.readCharacteristic(next)
-    }
-
-    private fun hasScanPermission(): Boolean = if (Build.VERSION.SDK_INT >= 31) {
-        ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED
-    } else ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
-
-    private fun hasConnectPermission(): Boolean = Build.VERSION.SDK_INT < 31 ||
+    private fun hasScanPermission() = ContextCompat.checkSelfPermission(context,
+        if (Build.VERSION.SDK_INT >= 31) Manifest.permission.BLUETOOTH_SCAN else Manifest.permission.ACCESS_FINE_LOCATION
+    ) == PackageManager.PERMISSION_GRANTED
+    private fun hasConnectPermission() = Build.VERSION.SDK_INT < 31 ||
         ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
-}
-
-private fun ByteArray.indexOfFrameHeader(): Int {
-    for (i in 0 until size - 1) {
-        if (this[i] == 0x5A.toByte() && this[i + 1] == 0xA5.toByte()) return i
-    }
-    return -1
 }

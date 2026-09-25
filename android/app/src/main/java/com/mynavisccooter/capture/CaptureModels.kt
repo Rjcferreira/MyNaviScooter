@@ -42,13 +42,17 @@ data class CaptureReport(
     val model: ModelProfile,
     val services: List<ServiceCapture>,
     val protocolProbe: ProtocolProbeCapture?,
-    val safety: Map<String, Any>
+    val safety: Map<String, Any>,
+    val diagnosticEvents: List<String> = emptyList(),
+    val outcome: String = "unknown"
 ) {
     fun toJson(): String {
         fun esc(value: String): String = value
             .replace("\\", "\\\\")
             .replace("\"", "\\\"")
             .replace("\n", "\\n")
+            .replace("\r", "\\r")
+            .replace("\t", "\\t")
 
         fun mapJson(map: Map<String, String>): String = map.entries.joinToString(",", "{", "}") {
             "\"${esc(it.key)}\":\"${esc(it.value)}\""
@@ -82,6 +86,9 @@ data class CaptureReport(
               "schema":"mynavi-scooter-capture/v1",
               "capturedAtUtc":"${esc(capturedAtUtc)}",
               "appVersion":"${esc(appVersion)}",
+              "buildRevision":"${BuildConfig.REVISION}",
+              "outcome":"${esc(outcome)}",
+              "diagnosticEvents":${diagnosticEvents.joinToString(",", "[", "]") { "\"${esc(it)}\"" }},
               "androidVersion":"${esc(androidVersion)}",
               "deviceName":"${esc(deviceName)}",
               "deviceAddress":"${esc(deviceAddress)}",
@@ -96,7 +103,9 @@ data class CaptureReport(
     }
 
     companion object {
-        fun nowUtc(): String = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).format(Date())
+        fun nowUtc(): String = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
+            timeZone = java.util.TimeZone.getTimeZone("UTC")
+        }.format(Date())
     }
 }
 

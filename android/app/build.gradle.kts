@@ -11,10 +11,12 @@ android {
         applicationId = "com.mynavisccooter.capture"
         minSdk = 26
         targetSdk = 35
-        versionCode = 6
-        versionName = "0.1.5"
+        versionCode = 100 + (System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 0)
+        versionName = "0.2.0-review.${System.getenv("GITHUB_RUN_NUMBER") ?: "local"}"
+        buildConfigField("String", "REVISION", "\"${System.getenv("GITHUB_SHA") ?: "local"}\"")
     }
 
+    buildFeatures { buildConfig = true }
     buildTypes {
         release {
             isMinifyEnabled = false
@@ -31,6 +33,7 @@ android {
 }
 
 dependencies {
+    testImplementation("junit:junit:4.13.2")
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.appcompat:appcompat:1.7.0")
 }

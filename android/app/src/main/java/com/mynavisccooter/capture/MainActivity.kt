@@ -49,17 +49,22 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
             setPadding(0, 8, 0, 8)
         }
         root.addView(text("MyNaviScooter", 28f, 0xFFFF8128.toInt()))
+        root.addView(text("${BuildConfig.VERSION_NAME} · ${BuildConfig.REVISION.take(8)}", 12f))
         root.addView(text("Captura segura ZT3 / F3 / GT3", 16f, 0xFFA8BCD0.toInt()))
         root.addView(text("Primeira fase: apenas leitura. Nenhuma configuração, firmware ou limite de velocidade será alterado.", 14f, 0xFFB8C9D8.toInt()))
 
-        val scan = Button(this).apply { text = "Procurar scooters"; setOnClickListener { ble.startScan() } }
+        val scan = Button(this).apply { text = "Procurar scooters"; setOnClickListener {
+            latestReport = null
+            exportButton.isEnabled = false
+            ble.startScan()
+        } }
         root.addView(scan, LinearLayout.LayoutParams(-1, -2).apply { topMargin = 20 })
 
         val credentialButton = Button(this).apply {
             text = if (credentials.hasCredentials()) "Credencial guardada · importar outra" else "Importar credencial de sessão"
             setOnClickListener { showCredentialDialog() }
         }
-        root.addView(credentialButton)
+        // The current capture stops at PRE_COMM. Credential import is not part of this flow.
 
         status = text("Pronto. Liga a ZT3 e toca em Procurar scooters.", 14f, 0xFF6DE7A0.toInt())
         root.addView(status)
@@ -75,7 +80,7 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
             setOnClickListener { exportReport() }
         }
         root.addView(exportButton)
-        root.addView(text("A captura será um JSON de diagnóstico. Não é um firmware e não escreve na scooter.", 12f, 0xFF7893AA.toInt()))
+        root.addView(text("Exporta um diagnóstico, não um backup restaurável. Envia apenas pedidos BLE de diagnóstico.", 12f, 0xFF7893AA.toInt()))
         setContentView(root)
     }
 
@@ -89,7 +94,11 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
             devices.forEach { item ->
                 val button = Button(this).apply {
                     text = "${item.name}  •  RSSI ${item.rssi}\n${item.model.name}"
-                    setOnClickListener { ble.connect(item) }
+                    setOnClickListener {
+                        latestReport = null
+                        exportButton.isEnabled = false
+                        ble.connect(item)
+                    }
                 }
                 deviceList.addView(button)
             }
@@ -103,9 +112,9 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
     override fun onCaptureReady(report: CaptureReport) {
         latestReport = report
         runOnUiThread {
-            status.text = "Captura concluída: ${report.services.size} serviços. Exporta o ficheiro para eu analisar."
+            status.text = "Resultado: ${report.outcome}. Exporta o diagnóstico com o registo de todas as etapas."
             exportButton.isEnabled = true
-            Toast.makeText(this, "Backup de diagnóstico pronto", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Diagnóstico pronto", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -147,7 +156,8 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == EXPORT_REQUEST && resultCode == Activity.RESULT_OK && data?.data != null) {
-            contentResolver.openOutputStream(data.data!!)?.use { it.write(latestReport!!.toJson().toByteArray()) }
+            val report = latestReport ?: return
+            contentResolver.openOutputStream(data.data!!)?.use { it.write(report.toJson().toByteArray()) }
             Toast.makeText(this, "Captura exportada", Toast.LENGTH_SHORT).show()
         }
     }

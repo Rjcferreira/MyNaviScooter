@@ -41,12 +41,20 @@ object Encryption2Probe {
         val length = frame[2].toInt() and 0xFF
         val bodyLength = length + 4
         val total = length + 13
-        if (frame.size < total || frame.size < bodyLength + 9) return null
+        if (length != 30 || frame.size != total) return null
         val key = deriveKey(deviceName.toByteArray(Charsets.UTF_8), fwData)
         val keystream = aesEcb(key, fwData)
         val body = xor(frame.copyOfRange(3, 3 + bodyLength), keystream)
-        if (body.size < 4 || body[0].toInt() and 0xFF != 0x3E) return null
-        if (body[1].toInt() and 0xFF != 0x04 || body[2].toInt() and 0xFF != 0x5B) return null
+        // Responses reverse the request's source/destination: BLE -> phone.
+        if (body[0].toInt() and 0xFF != 0x04) return null
+        if (body[1].toInt() and 0xFF != 0x3E || body[2].toInt() and 0xFF != 0x5B) return null
+        val footer = 3 + bodyLength
+        if (frame[footer] != 0.toByte() || frame[footer + 1] != 0.toByte() ||
+            frame[total - 2] != 0.toByte() || frame[total - 1] != 0.toByte()) return null
+        val expected = (0xFFFF - body.sumOf { it.toInt() and 0xFF }) and 0xFFFF
+        val actual = (frame[footer + 2].toInt() and 0xFF) or
+            ((frame[footer + 3].toInt() and 0xFF) shl 8)
+        if (expected != actual) return null
         val index = body[3].toInt() and 0xFF
         val data = body.copyOfRange(4, body.size)
         if (data.size < 30) return null

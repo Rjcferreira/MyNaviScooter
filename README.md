@@ -4,13 +4,13 @@ Projeto open source para diagnóstico BLE e gestão segura de perfis em scooters
 
 ## Estado atual
 
-O projeto começa com uma aplicação Android de captura BLE somente de leitura para ZT3 Pro, F3/F3 Pro e GT3. A primeira captura da ZT3 recolhe identificação, serviços GATT e características legíveis sem escrever na scooter.
+O projeto contém uma aplicação Android experimental de diagnóstico BLE. A revisão 0.2 recolhe serviços GATT e tenta PRE_COMM no Nordic UART observado numa captura oficial da ZT3. A autenticação completa e compatibilidade física com F3/GT3 ainda não estão validadas. O JSON não é um backup restaurável.
 
 O código Android está em [`android/`](android/) e o protótipo visual em [`prototype/`](prototype/).
 
 ## Segurança
 
-Esta versão não executa comandos de escrita, flash ou alteração de velocidade. O backup autenticado, restauração e perfis temporários só serão ativados depois de validar o modelo e as versões reais de cada unidade.
+Esta versão escreve apenas a subscrição CCCD e o pedido de diagnóstico PRE_COMM; não altera configurações, credenciais, firmware ou velocidade. Backup autenticado, restauração e perfis temporários ainda não estão implementados. Ver [revisão técnica](docs/review-2026-09-25.md).
 
 ## Pesquisa e atribuições
 
