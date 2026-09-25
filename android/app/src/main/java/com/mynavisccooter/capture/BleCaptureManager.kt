@@ -42,11 +42,15 @@ class BleCaptureManager(private val context: Context, private val listener: List
     private var attempted = false
     private var requestHex: String? = null
     private var result: PreCommResult? = null
+    private var authAttempted = false
+    private var authenticated = false
+    private var authNote = "Autenticação de leitura não iniciada."
     private var services: List<ServiceCapture> = emptyList()
     private val events = mutableListOf<String>()
     private val notifications = mutableListOf<String>()
     private val subscribed = mutableListOf<String>()
     private val frames = ProbeFrameBuffer()
+    private val credentialStore = EncryptedCredentialStore(context)
 
     private fun event(message: String) {
         if (events.size < 200) events += "${SystemClock.elapsedRealtime() - started}ms $message"
@@ -107,6 +111,8 @@ class BleCaptureManager(private val context: Context, private val listener: List
         selected = item
         events.clear(); notifications.clear(); subscribed.clear(); frames.clear()
         services = emptyList(); result = null; requestHex = null
+        authAttempted = false; authenticated = false
+        authNote = "Autenticação de leitura não iniciada."
         attempted = false; reported = false
         started = SystemClock.elapsedRealtime()
         event("build=${BuildConfig.VERSION_NAME} revision=${BuildConfig.REVISION}")
@@ -227,8 +233,57 @@ class BleCaptureManager(private val context: Context, private val listener: List
         for (frame in frames.append(value)) {
             val parsed = Encryption2Probe.parsePreCommFrame(frame, selected!!.name)
             event("frame bytes=${frame.size} precommValid=${parsed != null}")
-            if (parsed != null) { result = parsed; finish("precomm_received"); return }
+            if (parsed != null) {
+                result = parsed
+                beginReadOnlyAuth(g, parsed)
+                return
+            }
+            if (authAttempted) {
+                val auth = Encryption2Probe.parseAuthFrame(frame, credentialStore.load()?.passwordHex ?: "", result?.authParameterHex ?: "")
+                if (auth != null) {
+                    authenticated = auth.accepted
+                    authNote = if (auth.accepted) "AUTH aceite; ainda não foram enviados comandos de leitura." else "AUTH recusado pela scooter."
+                    finish(if (auth.accepted) "auth_received" else "auth_rejected")
+                    return
+                }
+            }
         }
+    }
+
+    private fun beginReadOnlyAuth(g: BluetoothGatt, pre: PreCommResult) {
+        if (pre.index == 0) {
+            authNote = "A scooter não indica password guardada; SET_PWD não é executado automaticamente."
+            finish("precomm_received_no_password")
+            return
+        }
+        val credentials = credentialStore.load()
+        if (credentials == null) {
+            authNote = "PRE_COMM recebido. Não existe credencial local; AUTH não foi tentado."
+            finish("precomm_received_no_credential")
+            return
+        }
+        if (credentials.serialNumber != selected?.name) {
+            authNote = "Credencial local pertence a outro número de série; AUTH bloqueado."
+            finish("precomm_received_wrong_credential")
+            return
+        }
+        val tx = g.getService(serviceId)?.getCharacteristic(txId)
+        if (tx == null) { authNote = "Canal Nordic UART indisponível para AUTH."; finish("auth_channel_missing"); return }
+        val frame = Encryption2Probe.buildAuthFrame(selected!!.name, credentials.passwordHex, pre.authParameterHex, pre.reportedSerial ?: selected!!.name)
+        authAttempted = true
+        authNote = "AUTH de leitura enviado; nenhum SET_PWD ou comando de configuração será enviado."
+        arm("auth", 10000L)
+        val accepted = if (Build.VERSION.SDK_INT >= 33) {
+            val code = g.writeCharacteristic(tx, frame, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE)
+            event("auth enqueue status=$code characteristic=$txId bytes=${frame.size}")
+            code == BluetoothStatusCodes.SUCCESS
+        } else {
+            tx.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+            tx.value = frame
+            g.writeCharacteristic(tx)
+        }
+        event("auth accepted=$accepted; enqueue is not peer acknowledgement")
+        if (!accepted) finish("auth_rejected_by_stack")
     }
     private fun finish(outcome: String) {
         if (reported) return
@@ -247,8 +302,8 @@ class BleCaptureManager(private val context: Context, private val listener: List
             "${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})",
             item.name, item.device.address, item.rssi, item.manufacturerData, item.model, services,
             ProtocolProbeCapture(attempted, subscribed.toList(), requestHex, notifications.toList(), result,
-                false, false, "Captura PRE_COMM; autenticação não executada nesta versão de diagnóstico.",
-                "Only Nordic UART CCCD and PRE_COMM were written. No configuration or pairing changes."),
+                authAttempted, authenticated, authNote,
+                "Only Nordic UART CCCD, PRE_COMM and optional owner-supplied read-only AUTH were written. No configuration or pairing changes."),
             mapOf("readOnly" to true, "configurationWritesPerformed" to false, "firmwareFlashed" to false),
             events.toList(), outcome
         ))

@@ -49,4 +49,14 @@ class ProbeTest {
     @Test fun sharedAdvertisementDoesNotProveExactModel() {
         assertEquals("medium", ModelProfiles.fromAdvertisement("unknown", "434E0100020000FC").confidence)
     }
+
+    @Test fun authFrameUsesReconnectCounterTwoAndNoSetPassword() {
+        val frame = Encryption2Probe.buildAuthFrame(name, "00112233445566778899AABBCCDDEEFF", "00112233445566778899AABBCCDDEEFF", name)
+        assertEquals(27, frame.size)
+        assertEquals(0x5A.toByte(), frame[0])
+        assertEquals(0xA5.toByte(), frame[1])
+        assertEquals(0x0E.toByte(), frame[2])
+        assertEquals(0x00.toByte(), frame[25])
+        assertEquals(0x02.toByte(), frame[26])
+    }
 }

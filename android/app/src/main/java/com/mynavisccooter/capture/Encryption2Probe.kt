@@ -70,19 +70,21 @@ object Encryption2Probe {
         val serialBytes = serial.toByteArray(Charsets.US_ASCII).copyOf(14)
         val plaintext = byteArrayOf(0x5A, 0xA5.toByte(), 0x0E, 0x3E, 0x04, 0x5D, 0x00) + serialBytes
         val key = deriveKey(password, auth)
-        val nonce = byteArrayOf(0x00, 0x00, 0x00, 0x01) + auth.copyOf(8) + byteArrayOf(0x00)
+        // Reconnect AUTH starts with counter 2: counter 1 is reserved by the
+        // session setup, as observed in the official HCI capture.
+        val nonce = byteArrayOf(0x00, 0x00, 0x00, 0x02) + auth.copyOf(8) + byteArrayOf(0x00)
         val encryptedBody = ctrXor(key, nonce, plaintext.copyOfRange(3, plaintext.size), 1)
         val tag = cbcMac(key, nonce, plaintext)
         val tagKeystream = aesEcb(key, byteArrayOf(0x01) + nonce + byteArrayOf(0x00, 0x00))
         val encryptedTag = ByteArray(4) { i -> (tag[i].toInt() xor tagKeystream[i].toInt()).toByte() }
-        return plaintext.copyOfRange(0, 3) + encryptedBody + encryptedTag + byteArrayOf(0x00, 0x01)
+        return plaintext.copyOfRange(0, 3) + encryptedBody + encryptedTag + byteArrayOf(0x00, 0x02)
     }
 
-    fun parseAuthFrame(frame: ByteArray, deviceName: String, passwordHex: String, authHex: String): AuthResult? {
-        if (frame.size < 27 || frame[0] != 0x5A.toByte() || frame[1] != 0xA5.toByte()) return null
+    fun parseAuthFrame(frame: ByteArray, passwordHex: String, authHex: String): AuthResult? {
+        if (frame.size < 14 || frame[0] != 0x5A.toByte() || frame[1] != 0xA5.toByte()) return null
         val length = frame[2].toInt() and 0xFF
         val total = length + 13
-        if (length != 14 || frame.size < total) return null
+        if (length < 1 || frame.size != total) return null
         val counter = ((frame[total - 2].toInt() and 0xFF) shl 8) or (frame[total - 1].toInt() and 0xFF)
         if (counter == 0) return null
         val password = hexToBytes(passwordHex)
@@ -95,8 +97,13 @@ object Encryption2Probe {
             (counter and 0xFF).toByte()
         ) + auth.copyOf(8) + byteArrayOf(0x00)
         val bodyLength = length + 4
-        val body = ctrXor(key, nonce, frame.copyOfRange(3, 3 + bodyLength), 1)
-        if (body.size < 4 || body[0].toInt() and 0xFF != 0x3E || body[1].toInt() and 0xFF != 0x04 || body[2].toInt() and 0xFF != 0x5D) return null
+        val encryptedBody = frame.copyOfRange(3, 3 + bodyLength)
+        val body = ctrXor(key, nonce, encryptedBody, 1)
+        val encryptedTag = frame.copyOfRange(3 + bodyLength, 3 + bodyLength + 4)
+        val receivedTag = xor(encryptedTag, aesEcb(key, byteArrayOf(0x01) + nonce + byteArrayOf(0x00, 0x00))).copyOf(4)
+        val plaintext = frame.copyOfRange(0, 3) + body
+        if (!receivedTag.contentEquals(cbcMac(key, nonce, plaintext))) return null
+        if (body.size < 4 || body[0].toInt() and 0xFF != 0x04 || body[1].toInt() and 0xFF != 0x3E || body[2].toInt() and 0xFF != 0x5D) return null
         return AuthResult(body[3].toInt() and 0xFF == 1, bytesToHex(frame) ?: "")
     }
 

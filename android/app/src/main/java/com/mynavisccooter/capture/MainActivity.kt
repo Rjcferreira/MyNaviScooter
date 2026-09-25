@@ -64,7 +64,7 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
             text = if (credentials.hasCredentials()) "Credencial guardada · importar outra" else "Importar credencial de sessão"
             setOnClickListener { showCredentialDialog() }
         }
-        // The current capture stops at PRE_COMM. Credential import is not part of this flow.
+        root.addView(credentialButton)
 
         status = text("Pronto. Liga a ZT3 e toca em Procurar scooters.", 14f, 0xFF6DE7A0.toInt())
         root.addView(status)
@@ -136,7 +136,7 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
         }
         AlertDialog.Builder(this)
             .setTitle("Credencial da tua scooter")
-            .setMessage("Cola aqui a URI de credenciais. A app valida e guarda-a cifrada apenas neste telemóvel. Nunca a envies por chat ou para o GitHub.")
+            .setMessage("Cola uma URI de credenciais obtida legitimamente para a tua scooter. A app valida e guarda-a cifrada apenas neste telemóvel. Nunca a envies por chat ou para o GitHub. Só será usada para AUTH de leitura.")
             .setView(input)
             .setNegativeButton("Cancelar", null)
             .setPositiveButton("Guardar") { _, _ ->
