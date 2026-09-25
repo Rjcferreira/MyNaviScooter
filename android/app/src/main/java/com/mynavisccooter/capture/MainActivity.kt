@@ -56,7 +56,7 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
         val scan = Button(this).apply { text = "Procurar scooters"; setOnClickListener {
             latestReport = null
             exportButton.isEnabled = false
-            ble.startScan()
+            showPairingAssistDialog { ble.startScan() }
         } }
         root.addView(scan, LinearLayout.LayoutParams(-1, -2).apply { topMargin = 20 })
 
@@ -149,6 +149,21 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
                     Toast.makeText(this, "Credencial inválida: ${it.message}", Toast.LENGTH_LONG).show()
                 }
             }
+            .show()
+    }
+
+    private fun showPairingAssistDialog(onContinue: () -> Unit) {
+        AlertDialog.Builder(this)
+            .setTitle("Emparelhamento assistido")
+            .setMessage(
+                "Para a primeira ligação, a scooter pode exigir uma confirmação física.\n\n" +
+                    "1. Fecha a app oficial e liga a scooter.\n" +
+                    "2. Mantém o telemóvel perto da scooter.\n" +
+                    "3. Quando for pedido, prime uma vez o botão de ligar/desligar.\n\n" +
+                    "Esta versão apenas regista o handshake BLE e não altera velocidade, perfis, firmware ou credenciais. A confirmação física pode alterar o vínculo Bluetooth da scooter."
+            )
+            .setNegativeButton("Cancelar", null)
+            .setPositiveButton("Continuar") { _, _ -> onContinue() }
             .show()
     }
 
