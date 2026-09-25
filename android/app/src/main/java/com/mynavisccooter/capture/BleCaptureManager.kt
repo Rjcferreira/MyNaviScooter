@@ -231,8 +231,10 @@ class BleCaptureManager(
 
     private fun sendPreCommProbe(gatt: BluetoothGatt) {
         val item = selected
-        val characteristic = gatt.getService(customNinebotService)?.characteristics
-            ?.firstOrNull { it.uuid.toString().endsWith("0002-0000-0000-006e-696e65626f74") }
+        val characteristic = gatt.getService(nordicUartService)?.characteristics
+            ?.firstOrNull { it.uuid.toString().endsWith("0002-b5a3-f393-e0a9-e50e24dcca9e") }
+            ?: gatt.getService(customNinebotService)?.characteristics
+                ?.firstOrNull { it.uuid.toString().endsWith("0002-0000-0000-006e-696e65626f74") }
         if (item == null || characteristic == null || characteristic.properties and BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE == 0) {
             listener.onStatus("Probe de protocolo não disponível; a terminar captura somente leitura…")
             readNext(gatt)
@@ -358,8 +360,10 @@ class BleCaptureManager(
             authenticationNote = "A credencial local pertence a outro número de série; autenticação recusada por segurança."
             return
         }
-        val characteristic = gatt.getService(customNinebotService)?.characteristics
-            ?.firstOrNull { it.uuid.toString().endsWith("0002-0000-0000-006e-696e65626f74") }
+        val characteristic = gatt.getService(nordicUartService)?.characteristics
+            ?.firstOrNull { it.uuid.toString().endsWith("0002-b5a3-f393-e0a9-e50e24dcca9e") }
+            ?: gatt.getService(customNinebotService)?.characteristics
+                ?.firstOrNull { it.uuid.toString().endsWith("0002-0000-0000-006e-696e65626f74") }
         if (characteristic == null || characteristic.properties and BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE == 0) {
             authenticationNote = "A resposta PRE_COMM chegou, mas o canal de escrita autenticado não está disponível."
             return
