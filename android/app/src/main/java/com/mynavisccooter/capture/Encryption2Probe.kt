@@ -26,7 +26,7 @@ object Encryption2Probe {
         // Plaintext: 5A A5 LEN BT_ID TARGET CMD INDEX PAYLOAD
         val plaintext = byteArrayOf(0x5A, 0xA5.toByte(), 0x00, 0x3E, 0x04, 0x5B, 0x00)
         val key = deriveKey(deviceName.toByteArray(Charsets.UTF_8), fwData)
-        val keystream = aesEcb(key, ByteArray(16))
+        val keystream = aesEcb(key, fwData)
         val encryptedBody = xor(plaintext.copyOfRange(3, plaintext.size), keystream)
         val checksum = ((0xFFFF - plaintext.copyOfRange(3, plaintext.size).sumOf { it.toInt() and 0xFF }) and 0xFFFF)
         return plaintext.copyOfRange(0, 3) + encryptedBody + byteArrayOf(
@@ -43,7 +43,7 @@ object Encryption2Probe {
         val total = length + 13
         if (frame.size < total || frame.size < bodyLength + 9) return null
         val key = deriveKey(deviceName.toByteArray(Charsets.UTF_8), fwData)
-        val keystream = aesEcb(key, ByteArray(16))
+        val keystream = aesEcb(key, fwData)
         val body = xor(frame.copyOfRange(3, 3 + bodyLength), keystream)
         if (body.size < 4 || body[0].toInt() and 0xFF != 0x3E) return null
         if (body[1].toInt() and 0xFF != 0x04 || body[2].toInt() and 0xFF != 0x5B) return null
