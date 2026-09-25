@@ -59,4 +59,21 @@ class ProbeTest {
         assertEquals(0x00.toByte(), frame[25])
         assertEquals(0x02.toByte(), frame[26])
     }
+
+    @Test fun profilePlanKeepsEcoOriginalAndRestoresAllOriginalValues() {
+        val original = OriginalSettings(22, 25, 30, false)
+        val custom = ProfilePlan.personalizedPlan(original, PersonalizedSettings(25, 30, true))
+        assertEquals(22, custom.ecoSpeed)
+        assertEquals(25, custom.driveSpeed)
+        assertEquals(30, custom.sportSpeed)
+        assertTrue(custom.zeroStart)
+        assertEquals(original, ProfilePlan.originalPlan(original))
+    }
+
+    @Test fun profilePlanRequiresAllSafetyPrerequisites() {
+        assertFalse(ProfilePlan.canApply(false, true, true))
+        assertFalse(ProfilePlan.canApply(true, false, true))
+        assertFalse(ProfilePlan.canApply(true, true, false))
+        assertTrue(ProfilePlan.canApply(true, true, true))
+    }
 }
