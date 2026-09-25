@@ -18,7 +18,7 @@ Este é um protótipo visual/simulado. Ainda não comunica com uma trotinete rea
 
 ## Primeira app Android real
 
-O cliente Android de captura BLE está na pasta [`mynavi-scooter-android`](../mynavi-scooter-android/). É uma primeira versão deliberadamente somente de leitura para recolher o diagnóstico real da ZT3 sem alterar a scooter.
+O cliente Android de diagnóstico BLE está na pasta [`android`](../android/). Recolhe serviços e tenta a comunicação inicial PRE_COMM, sem alterar configurações. Não é um backup restaurável. Ver [revisão técnica](../docs/review-2026-09-25.md).
 
 ## Integração ScooterHacking
 
