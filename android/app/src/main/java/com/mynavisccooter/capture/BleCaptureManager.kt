@@ -174,7 +174,12 @@ class BleCaptureManager(
                 }
                 .distinctBy { it.uuid }
             listener.onStatus("Serviços encontrados: ${gatt.services.size}. Leituras: ${readQueue.size}; notificações: ${notificationQueue.size}")
-            enableNextNotification(gatt)
+            if (gatt.requestMtu(517)) {
+                listener.onStatus("A negociar MTU BLE com a scooter…")
+            } else {
+                listener.onStatus("MTU BLE não negociado; a continuar com o valor padrão…")
+                enableNextNotification(gatt)
+            }
         }
 
         override fun onCharacteristicRead(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, status: Int) {
@@ -195,6 +200,14 @@ class BleCaptureManager(
             recordNotification(gatt, characteristic, value)
         }
 
+        override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
+            if (status == BluetoothGatt.GATT_SUCCESS) {
+                listener.onStatus("MTU BLE negociado: $mtu bytes")
+            } else {
+                listener.onStatus("MTU BLE não negociado ($status); a continuar…")
+            }
+            enableNextNotification(gatt)
+        }
         override fun onDescriptorWrite(gatt: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
             if (status != BluetoothGatt.GATT_SUCCESS) {
                 listener.onStatus("Não foi possível ativar uma notificação BLE: $status")
