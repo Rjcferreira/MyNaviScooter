@@ -179,7 +179,7 @@ class BleCaptureManager(
                 ?: emptyList()
             notificationQueue += (standardNotifications.ifEmpty { allNotifications }).distinctBy { it.uuid }
             listener.onStatus("Serviços encontrados: ${gatt.services.size}. Leituras: ${readQueue.size}; notificações: ${notificationQueue.size}")
-                        enableNextNotification(gatt)
+            enableNextNotification(gatt)
         }
 
         override fun onCharacteristicRead(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, status: Int) {
@@ -219,7 +219,17 @@ class BleCaptureManager(
     private fun enableNextNotification(gatt: BluetoothGatt) {
         val characteristic = notificationQueue.removeFirstOrNull()
         if (characteristic == null) {
-            sendPreCommProbe(gatt)
+            if (!mtuRequested) {
+                mtuRequested = true
+                if (gatt.requestMtu(517)) {
+                    listener.onStatus("A negociar MTU BLE com a scooter…")
+                } else {
+                    listener.onStatus("MTU BLE não negociado; a continuar com o valor padrão…")
+                    sendPreCommProbe(gatt)
+                }
+            } else {
+                sendPreCommProbe(gatt)
+            }
             return
         }
 
