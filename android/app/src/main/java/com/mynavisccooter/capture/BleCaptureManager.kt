@@ -57,6 +57,7 @@ class BleCaptureManager(
     private var authenticationNote = "Autenticação de leitura não iniciada."
     private var activeCredentials: SessionCredentials? = null
     private var reportScheduled = false
+    private var mtuRequested = false
     private val mainHandler = Handler(Looper.getMainLooper())
     private val credentialStore = EncryptedCredentialStore(context)
 
@@ -134,6 +135,7 @@ class BleCaptureManager(
         authenticationNote = "Autenticação de leitura não iniciada."
         activeCredentials = null
         reportScheduled = false
+        mtuRequested = false
         listener.onStatus("A ligar a ${item.name} (modo somente leitura)…")
         gatt?.close()
         gatt = item.device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
@@ -165,21 +167,19 @@ class BleCaptureManager(
             readQueue = gatt.services.flatMap { it.characteristics }
                 .filter { it.properties and BluetoothGattCharacteristic.PROPERTY_READ != 0 }
                 .toMutableList()
-            notificationQueue += gatt.services
+            val allNotifications = gatt.services
                 .flatMap { it.characteristics }
                 .filter { characteristic ->
                     val canNotify = characteristic.properties and BluetoothGattCharacteristic.PROPERTY_NOTIFY != 0
                     val canIndicate = characteristic.properties and BluetoothGattCharacteristic.PROPERTY_INDICATE != 0
                     (canNotify || canIndicate) && characteristic.getDescriptor(cccdUuid) != null
                 }
-                .distinctBy { it.uuid }
+            val standardNotifications = gatt.getService(nordicUartService)?.characteristics
+                ?.filter { it in allNotifications }
+                ?: emptyList()
+            notificationQueue += (standardNotifications.ifEmpty { allNotifications }).distinctBy { it.uuid }
             listener.onStatus("Serviços encontrados: ${gatt.services.size}. Leituras: ${readQueue.size}; notificações: ${notificationQueue.size}")
-            if (gatt.requestMtu(517)) {
-                listener.onStatus("A negociar MTU BLE com a scooter…")
-            } else {
-                listener.onStatus("MTU BLE não negociado; a continuar com o valor padrão…")
-                enableNextNotification(gatt)
-            }
+                        enableNextNotification(gatt)
         }
 
         override fun onCharacteristicRead(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, status: Int) {
@@ -206,7 +206,7 @@ class BleCaptureManager(
             } else {
                 listener.onStatus("MTU BLE não negociado ($status); a continuar…")
             }
-            enableNextNotification(gatt)
+            sendPreCommProbe(gatt)
         }
         override fun onDescriptorWrite(gatt: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
             if (status != BluetoothGatt.GATT_SUCCESS) {
