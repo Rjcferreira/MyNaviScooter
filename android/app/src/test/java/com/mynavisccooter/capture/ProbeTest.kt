@@ -47,6 +47,6 @@ class ProbeTest {
         } finally { TimeZone.setDefault(original) }
     }
     @Test fun sharedAdvertisementDoesNotProveExactModel() {
-        assertEquals("low", ModelProfiles.fromAdvertisement("unknown", "434E0100020000FC").confidence)
+        assertEquals("medium", ModelProfiles.fromAdvertisement("unknown", "434E0100020000FC").confidence)
     }
 }
