@@ -217,7 +217,7 @@ class BleCaptureManager(private val context: Context, private val listener: List
         }
         event("precomm accepted=$accepted; enqueue is not peer acknowledgement")
         if (!accepted) { finish("precomm_rejected"); return }
-        listener.onStatus("À espera da scooter (15 s). Se não responder, dá um toque curto no botão para alternar o farol, como no ScooterHacking.")
+        listener.onStatus("À espera da resposta inicial da scooter (15 s). O emparelhamento pelo botão é uma etapa posterior.")
     }
     private fun receive(uuid: UUID, value: ByteArray) {
         event("notify characteristic=$uuid bytes=${value.size}")
