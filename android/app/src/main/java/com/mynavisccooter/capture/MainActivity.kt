@@ -152,6 +152,19 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
             .show()
     }
 
+    override fun onPhysicalAuthorizationRequired() {
+        runOnUiThread {
+            AlertDialog.Builder(this)
+                .setTitle("Autorizar scooter")
+                .setMessage("Prime agora uma vez o botão de ligar/desligar da scooter. Depois toque em Continuar para a app prosseguir com a ligação de leitura.")
+                .setNegativeButton("Cancelar", null)
+                .setPositiveButton("Continuar") { _, _ ->
+                    ble.continueAfterPhysicalAuthorization()
+                }
+                .show()
+        }
+    }
+
     private fun showPairingAssistDialog(onContinue: () -> Unit) {
         AlertDialog.Builder(this)
             .setTitle("Emparelhamento assistido")

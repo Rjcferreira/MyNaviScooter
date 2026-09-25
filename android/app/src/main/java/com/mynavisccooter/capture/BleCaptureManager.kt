@@ -24,6 +24,7 @@ class BleCaptureManager(private val context: Context, private val listener: List
         fun onStatus(message: String)
         fun onDevicesChanged(devices: List<ScannedScooter>)
         fun onCaptureReady(report: CaptureReport)
+        fun onPhysicalAuthorizationRequired()
     }
     private val adapter = context.getSystemService(BluetoothManager::class.java)?.adapter
     private val main = Handler(Looper.getMainLooper())
@@ -45,6 +46,8 @@ class BleCaptureManager(private val context: Context, private val listener: List
     private var authAttempted = false
     private var authenticated = false
     private var authNote = "Autenticação de leitura não iniciada."
+    private var pendingPreComm: PreCommResult? = null
+    private var pendingAuthorizationGatt: BluetoothGatt? = null
     private var services: List<ServiceCapture> = emptyList()
     private val events = mutableListOf<String>()
     private val notifications = mutableListOf<String>()
@@ -235,7 +238,12 @@ class BleCaptureManager(private val context: Context, private val listener: List
             event("frame bytes=${frame.size} precommValid=${parsed != null}")
             if (parsed != null) {
                 result = parsed
-                beginReadOnlyAuth(g, parsed)
+                pendingPreComm = parsed
+                pendingAuthorizationGatt = g
+                arm("button", 30000L)
+                event("physical_authorization_required")
+                listener.onStatus("Prime uma vez o botão de ligar/desligar da scooter para autorizar a ligação.")
+                listener.onPhysicalAuthorizationRequired()
                 return
             }
             if (authAttempted) {
@@ -248,6 +256,16 @@ class BleCaptureManager(private val context: Context, private val listener: List
                 }
             }
         }
+    }
+
+    fun continueAfterPhysicalAuthorization() {
+        val connection = pendingAuthorizationGatt
+        val pre = pendingPreComm
+        if (connection == null || pre == null || reported) return
+        event("physical_authorization_confirmed")
+        pendingAuthorizationGatt = null
+        pendingPreComm = null
+        beginReadOnlyAuth(connection, pre)
     }
 
     private fun beginReadOnlyAuth(g: BluetoothGatt, pre: PreCommResult) {
