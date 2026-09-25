@@ -176,11 +176,11 @@ class BleCaptureManager(private val context: Context, private val listener: List
         }
         override fun onCharacteristicChanged(g: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
             val value = characteristic.value?.clone() ?: return
-            active(g) { receive(characteristic.uuid, value) }
+            active(g) { receive(g, characteristic.uuid, value) }
         }
         override fun onCharacteristicChanged(g: BluetoothGatt, characteristic: BluetoothGattCharacteristic, value: ByteArray) {
             val copy = value.clone()
-            active(g) { receive(characteristic.uuid, copy) }
+            active(g) { receive(g, characteristic.uuid, copy) }
         }
     }
     private fun subscribe(g: BluetoothGatt) {
@@ -225,7 +225,7 @@ class BleCaptureManager(private val context: Context, private val listener: List
         if (!accepted) { finish("precomm_rejected"); return }
         listener.onStatus("À espera da resposta inicial da scooter (15 s). O emparelhamento pelo botão é uma etapa posterior.")
     }
-    private fun receive(uuid: UUID, value: ByteArray) {
+    private fun receive(g: BluetoothGatt, uuid: UUID, value: ByteArray) {
         event("notify characteristic=$uuid bytes=${value.size}")
         if (uuid != rxId || value.isEmpty()) return
         if (notifications.size >= 64) { finish("notification_limit"); return }
