@@ -10,7 +10,7 @@ data class ModelProfile(
 )
 
 object ModelProfiles {
-    val X3_FAMILY = ModelProfile("Segway X3 (modelo por confirmar)", -1, -1, -1, "X3", "low")
+    val X3_FAMILY = ModelProfile("Segway X3 (ZT3/F3/GT3)", -1, -1, -1, "X3", "medium")
     val ZT3_PRO = ModelProfile("Segway ZT3 Pro", 10256, 256, 191, "X3 / VCU 0x16", "high")
     val F3_PRO = ModelProfile("Segway F3 Pro", 10259, 259, 192, "X3 / VCU 0x16", "high")
     val GT3 = ModelProfile("Segway GT3", 10257, 257, 192, "X3 / VCU 0x16", "high")
