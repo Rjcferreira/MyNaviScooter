@@ -8,6 +8,7 @@ import android.os.Build
 import android.os.Bundle
 import android.view.View
 import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -15,6 +16,7 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowCompat
 
 class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
     private lateinit var dashboard: Dashboard
@@ -27,6 +29,7 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         credentials = EncryptedCredentialStore(this)
         ble = BleCaptureManager(this, this)
         dashboard = Dashboard(this)
@@ -35,12 +38,14 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
             onRecover = { selected?.let { connect(it, true) } },
             onExport = { exportReport() }, onSettings = { settings() }
         )
-        setContentView(view)
-        ViewCompat.setOnApplyWindowInsetsListener(view) { v, insets ->
-            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+        val container = FrameLayout(this).apply { setBackgroundColor(0xFF04101B.toInt()); addView(view) }
+        setContentView(container)
+        ViewCompat.setOnApplyWindowInsetsListener(container) { v, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
             v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
             insets
         }
+        ViewCompat.requestApplyInsets(container)
     }
 
     private fun connect(item: ScannedScooter, repair: Boolean = false) {

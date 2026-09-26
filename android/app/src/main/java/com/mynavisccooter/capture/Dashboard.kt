@@ -58,8 +58,14 @@ class Dashboard(private val context: Context) {
         root.addView(selected)
         root.addView(SpeedDial(context), LinearLayout.LayoutParams(-1, dp(265)))
         val stats = card()
-        stats.addView(label("— %                         — km", 25f).apply { setTypeface(null, Typeface.BOLD) })
-        stats.addView(label("BATERIA                         AUTONOMIA", 10f, muted))
+        val statsRow = LinearLayout(context)
+        listOf("— %" to "BATERIA", "— km" to "AUTONOMIA").forEach { (value, caption) ->
+            val column = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+            column.addView(label(value, 25f).apply { setTypeface(null, Typeface.BOLD) })
+            column.addView(label(caption, 10f, muted))
+            statsRow.addView(column, LinearLayout.LayoutParams(0, -2, 1f))
+        }
+        stats.addView(statsRow)
         stats.addView(label("Telemetria ainda indisponível", 12f, muted))
         root.addView(stats)
         val connection = card()

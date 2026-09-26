@@ -1,5 +1,5 @@
 <resources>
-    <style name="Theme.MyNaviScooter" parent="Theme.AppCompat.DayNight.NoActionBar">
+    <style name="Theme.MyNaviScooter" parent="Theme.AppCompat.NoActionBar">
         <item name="android:fontFamily">sans</item>
         <item name="android:colorAccent">#FF8F27</item>
         <item name="android:navigationBarColor">#07131E</item>
