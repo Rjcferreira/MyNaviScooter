@@ -22,6 +22,7 @@ data class ScannedScooter(val device: BluetoothDevice, val name: String, val rss
 @android.annotation.SuppressLint("MissingPermission")
 class BleCaptureManager(private val context: Context, private val listener: Listener) {
     interface Listener {
+        fun onStage(stage: String)
         fun onStatus(message: String)
         fun onDevicesChanged(devices: List<ScannedScooter>)
         fun onCaptureReady(report: CaptureReport)
@@ -60,6 +61,7 @@ class BleCaptureManager(private val context: Context, private val listener: List
     private var pairingAccepted = false
     private var authCounter = 2
     private var mtu = 23
+    private var forcePairing = false
 
     private fun event(message: String) {
         if (events.size < 200) events += "${SystemClock.elapsedRealtime() - started}ms $message"
@@ -67,6 +69,7 @@ class BleCaptureManager(private val context: Context, private val listener: List
     private fun arm(stage: String, milliseconds: Long = 10000L) {
         timeout?.let(main::removeCallbacks)
         phase = stage
+        listener.onStage(stage)
         timeout = Runnable { finish("timeout_$stage") }.also { main.postDelayed(it, milliseconds) }
     }
     private fun active(connection: BluetoothGatt, action: () -> Unit) {
@@ -114,9 +117,10 @@ class BleCaptureManager(private val context: Context, private val listener: List
         if (scanning && hasScanPermission()) runCatching { adapter?.bluetoothLeScanner?.stopScan(scanCallback) }
         scanning = false
     }
-    fun connect(item: ScannedScooter) {
+    fun connect(item: ScannedScooter, pairAgain: Boolean = false) {
         if (!hasConnectPermission()) { listener.onStatus("Permissão de ligação Bluetooth necessária"); return }
         close()
+        forcePairing = pairAgain
         selected = item
         events.clear(); notifications.clear(); subscribed.clear(); frames.clear()
         services = emptyList(); result = null; requestHex = null
@@ -306,9 +310,10 @@ class BleCaptureManager(private val context: Context, private val listener: List
             return
         }
         if (mtu < 32) { finish("mtu_too_small_for_handshake"); return }
-        val credentials = pendingStore?.load()?.takeIf { it.serialNumber == pre.reportedSerial }
-            ?: credentialStore.load()?.takeIf { it.serialNumber == pre.reportedSerial }
-        if (credentials == null || pre.index == 0) {
+        val choice = CredentialSelection.choose(pre.reportedSerial!!, credentialStore.load(), pendingStore?.load())
+        val credentials = choice?.second
+        event("credential_source=${choice?.first ?: "none"}; explicit_repair=$forcePairing")
+        if (forcePairing || credentials == null || pre.index == 0) {
             authNote = "Emparelhamento inicial disponível; aguarda a escolha do proprietário."
             arm("pairing_consent", 60000L)
             listener.onPairingAvailable(
@@ -326,6 +331,12 @@ class BleCaptureManager(private val context: Context, private val listener: List
         val candidate = SessionCredentials(pre.reportedSerial!!, bytesToHex(password)!!, null)
         try {
             // Persist BEFORE transmission so an interrupted handshake cannot lose the new key.
+            credentialStore.load()?.takeIf { it.serialNumber == pre.reportedSerial }?.let {
+                EncryptedCredentialStore(context, "saved_archive_" + selected!!.device.address.replace(":", "") + "_" + System.currentTimeMillis()).save(it)
+            }
+            pendingStore?.load()?.let {
+                EncryptedCredentialStore(context, "archive_" + selected!!.device.address.replace(":", "") + "_" + System.currentTimeMillis()).save(it)
+            }
             pendingStore!!.save(candidate)
         } catch (_: Exception) {
             finish("pairing_storage_failed")
@@ -373,6 +384,7 @@ class BleCaptureManager(private val context: Context, private val listener: List
     private fun finish(outcome: String) {
         if (reported) return
         reported = true
+        if (outcome == "timeout_auth") authNote = "A scooter não respondeu à autenticação. A credencial foi preservada. Podes escolher Emparelhar novamente."
         timeout?.let(main::removeCallbacks)
         timeout = null
         event("complete outcome=$outcome")

@@ -12,7 +12,7 @@
 
     <application
         android:allowBackup="false"
-        android:label="MyNaviScooter Capture"
+        android:label="MyNaviScooter"
         android:supportsRtl="true"
         android:theme="@style/Theme.MyNaviScooter">
         <activity
