@@ -20,9 +20,13 @@ class DashboardTest {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         instrumentation.waitForIdleSync()
         val bitmap = instrumentation.uiAutomation.takeScreenshot()
-        File(instrumentation.targetContext.getExternalFilesDir(null), "$name.png").outputStream().use {
+        val file = File(instrumentation.targetContext.getExternalFilesDir(null), "$name.png")
+        file.outputStream().use {
             bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)
         }
+        android.os.ParcelFileDescriptor.AutoCloseInputStream(instrumentation.uiAutomation.executeShellCommand(
+            "cp ${file.absolutePath} /data/local/tmp/$name.png"
+        )).use { it.readBytes() }
     }
     @Test fun homeAndSettingsWorkWithoutBluetoothHardware() {
         onView(withText("Boa viagem!")).check(matches(isDisplayed()))
