@@ -27,7 +27,8 @@ class DashboardTest {
     @Test fun homeAndSettingsWorkWithoutBluetoothHardware() {
         onView(withText("Boa viagem!")).check(matches(isDisplayed()))
         screenshot("dashboard-home")
-        onView(withText("Configurações e diagnóstico")).perform(scrollTo())
+        onView(isAssignableFrom(android.widget.ScrollView::class.java)).perform(swipeUp(), swipeUp())
+        onView(withText("Configurações e diagnóstico")).check(matches(isDisplayed()))
         screenshot("dashboard-controls")
         onView(withText("Configurações e diagnóstico")).perform(click())
         onView(withText("Sobre esta versão")).perform(click())
