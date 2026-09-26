@@ -97,7 +97,7 @@ data class CaptureReport(
               "model":$modelJson,
               "services":$serviceJson,
               "protocolProbe":$probeJson,
-              "safety":{"readOnly":true,"configurationWritesPerformed":false,"firmwareFlashed":false,"note":"Only GATT notification subscriptions and an unauthenticated diagnostic probe may have been used; no scooter profile, speed, credential, or firmware configuration was changed."}
+              "safety":{"readOnly":${safety["readOnly"] == true},"configurationWritesPerformed":${safety["configurationWritesPerformed"] == true},"firmwareFlashed":${safety["firmwareFlashed"] == true},"pairingWriteAttempted":${safety["pairingWriteAttempted"] == true},"pairingAcceptedByScooter":${safety["pairingAcceptedByScooter"] == true},"note":"Pairing can change Bluetooth credentials. No scooter profile, speed or firmware commands are sent. Raw pairing traffic is excluded."}
             }
         """.trimIndent()
     }

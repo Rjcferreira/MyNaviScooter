@@ -32,8 +32,8 @@ object CredentialParser {
     }
 }
 
-class EncryptedCredentialStore(context: Context) {
-    private val prefs = context.getSharedPreferences("mynavi_credentials", Context.MODE_PRIVATE)
+class EncryptedCredentialStore(context: Context, slot: String = "mynavi_credentials") {
+    private val prefs = context.getSharedPreferences(slot, Context.MODE_PRIVATE)
     private val alias = "mynavi-session-credentials-v1"
 
     fun save(credentials: SessionCredentials) {
@@ -48,7 +48,9 @@ class EncryptedCredentialStore(context: Context) {
             .put(cipher.iv)
             .put(encrypted)
             .array()
-        prefs.edit().putString("payload", android.util.Base64.encodeToString(payload, android.util.Base64.NO_WRAP)).apply()
+        check(prefs.edit().putString("payload", android.util.Base64.encodeToString(payload, android.util.Base64.NO_WRAP)).commit()) {
+            "Não foi possível guardar a credencial"
+        }
     }
 
     fun hasCredentials(): Boolean = prefs.contains("payload")

@@ -27,6 +27,7 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
     private var latestReport: CaptureReport? = null
     private lateinit var ble: BleCaptureManager
     private lateinit var credentials: EncryptedCredentialStore
+    private var pairingDialog: AlertDialog? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -51,7 +52,7 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
         root.addView(text("MyNaviScooter", 28f, 0xFFFF8128.toInt()))
         root.addView(text("${BuildConfig.VERSION_NAME} · ${BuildConfig.REVISION.take(8)}", 12f))
         root.addView(text("Captura segura ZT3 / F3 / GT3", 16f, 0xFFA8BCD0.toInt()))
-        root.addView(text("Primeira fase: apenas leitura. Nenhuma configuração, firmware ou limite de velocidade será alterado.", 14f, 0xFFB8C9D8.toInt()))
+        root.addView(text("Ligação e autenticação. O emparelhamento inicial guarda uma credencial Bluetooth; os perfis e o firmware permanecem inalterados.", 14f, 0xFFB8C9D8.toInt()))
 
         val scan = Button(this).apply { text = "Procurar scooters"; setOnClickListener {
             latestReport = null
@@ -112,7 +113,11 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
     override fun onCaptureReady(report: CaptureReport) {
         latestReport = report
         runOnUiThread {
-            status.text = if (report.outcome == "precomm_received_no_credential") {
+            pairingDialog?.dismiss()
+            pairingDialog = null
+            status.text = if (report.protocolProbe?.authenticated == true) {
+                "Autenticação confirmada pela scooter. Credencial guardada para voltar a ligar. Podes exportar o resultado. A leitura de configurações ainda não está disponível."
+            } else if (report.outcome == "precomm_received_no_credential") {
                 "Bluetooth ligado e resposta recebida. O emparelhamento inicial ainda não está implementado para esta scooter. Não precisas de premir o botão nem repetir a captura."
             } else {
                 "Resultado: ${report.outcome}. Exporta o diagnóstico com o registo de todas as etapas."
@@ -156,6 +161,19 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
             .show()
     }
 
+    override fun onPairingAvailable(confirm: () -> Unit, cancel: () -> Unit) {
+        runOnUiThread {
+            pairingDialog?.dismiss()
+            pairingDialog = AlertDialog.Builder(this)
+                .setTitle("Emparelhar com MyNaviScooter?")
+                .setMessage("Será enviada uma nova credencial Bluetooth para esta scooter. Pode ser necessário voltar a emparelhar a app oficial. Esta implementação ainda precisa de validação na tua ZT3.\n\nSe a scooter pedir confirmação, a app indica quando premires o botão e aguarda automaticamente a resposta.")
+                .setPositiveButton("Emparelhar") { _, _ -> confirm() }
+                .setNegativeButton("Cancelar") { _, _ -> cancel() }
+                .setOnCancelListener { cancel() }
+                .show()
+        }
+    }
+
     @Deprecated("Activity result API kept minimal for the first capture build")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
@@ -176,6 +194,7 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
     }
 
     override fun onDestroy() {
+        pairingDialog?.dismiss()
         ble.close()
         super.onDestroy()
     }

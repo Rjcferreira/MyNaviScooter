@@ -16,6 +16,8 @@ data class AuthResult(
     val frameHex: String
 )
 
+data class HandshakeReply(val command: Int, val index: Int, val counter: Int)
+
 object Encryption2Probe {
     // The ZT3/X3 interoperability implementation uses this Gen2-compatible
     // non-SN block for PRE_COMM, even though the advertisement advertises
@@ -64,32 +66,52 @@ object Encryption2Probe {
         return PreCommResult(index, bytesToHex(auth) ?: "", serial, bytesToHex(frame) ?: "")
     }
 
-    fun buildAuthFrame(deviceName: String, passwordHex: String, authHex: String, serial: String): ByteArray {
+    fun buildAuthFrame(deviceName: String, passwordHex: String, authHex: String, serial: String, counter: Int = 2): ByteArray {
         val password = hexToBytes(passwordHex)
-        val auth = hexToBytes(authHex)
+        require(serial.matches(Regex("[A-Za-z0-9]{14}")))
         val serialBytes = serial.toByteArray(Charsets.US_ASCII).copyOf(14)
         val plaintext = byteArrayOf(0x5A, 0xA5.toByte(), 0x0E, 0x3E, 0x04, 0x5D, 0x00) + serialBytes
-        val key = deriveKey(password, auth)
-        // Reconnect AUTH starts with counter 2: counter 1 is reserved by the
-        // session setup, as observed in the official HCI capture.
-        val nonce = byteArrayOf(0x00, 0x00, 0x00, 0x02) + auth.copyOf(8) + byteArrayOf(0x00)
+        return encryptHandshake(plaintext, password, authHex, counter)
+    }
+
+    fun buildPairingFrame(deviceName: String, passwordHex: String, authHex: String): ByteArray {
+        val password = hexToBytes(passwordHex)
+        require(password.size == 16)
+        val plaintext = byteArrayOf(0x5A, 0xA5.toByte(), 16, 0x3E, 0x04, 0x5C, 0) + password
+        return encryptHandshake(plaintext, deviceName.toByteArray(Charsets.US_ASCII), authHex, 2)
+    }
+
+    private fun encryptHandshake(plaintext: ByteArray, keyMaterial: ByteArray, authHex: String, counter: Int): ByteArray {
+        require(counter in 2..65535)
+        val auth = hexToBytes(authHex)
+        require(auth.size == 16)
+        val key = deriveKey(keyMaterial, auth)
+        val nonce = byteArrayOf(0, 0, (counter ushr 8).toByte(), counter.toByte()) + auth.copyOf(8) + byteArrayOf(0)
         val encryptedBody = ctrXor(key, nonce, plaintext.copyOfRange(3, plaintext.size), 1)
         val tag = cbcMac(key, nonce, plaintext)
         val tagKeystream = aesEcb(key, byteArrayOf(0x01) + nonce + byteArrayOf(0x00, 0x00))
         val encryptedTag = ByteArray(4) { i -> (tag[i].toInt() xor tagKeystream[i].toInt()).toByte() }
-        return plaintext.copyOfRange(0, 3) + encryptedBody + encryptedTag + byteArrayOf(0x00, 0x02)
+        return plaintext.copyOfRange(0, 3) + encryptedBody + encryptedTag + byteArrayOf((counter ushr 8).toByte(), counter.toByte())
     }
 
     fun parseAuthFrame(frame: ByteArray, passwordHex: String, authHex: String): AuthResult? {
-        if (frame.size < 14 || frame[0] != 0x5A.toByte() || frame[1] != 0xA5.toByte()) return null
+        val parsed = parseHandshake(frame, hexToBytes(passwordHex), authHex, 0x5D) ?: return null
+        return AuthResult(parsed.index == 1, bytesToHex(frame) ?: "")
+    }
+
+    fun parsePairingFrame(frame: ByteArray, deviceName: String, authHex: String): HandshakeReply? =
+        parseHandshake(frame, deviceName.toByteArray(Charsets.US_ASCII), authHex, 0x5C)
+
+    private fun parseHandshake(frame: ByteArray, keyMaterial: ByteArray, authHex: String, command: Int): HandshakeReply? {
+        if (frame.size < 13 || frame[0] != 0x5A.toByte() || frame[1] != 0xA5.toByte()) return null
         val length = frame[2].toInt() and 0xFF
         val total = length + 13
-        if (length < 1 || frame.size != total) return null
+        if (frame.size != total) return null
         val counter = ((frame[total - 2].toInt() and 0xFF) shl 8) or (frame[total - 1].toInt() and 0xFF)
         if (counter == 0) return null
-        val password = hexToBytes(passwordHex)
         val auth = hexToBytes(authHex)
-        val key = deriveKey(password, auth)
+        if (auth.size != 16 || keyMaterial.isEmpty()) return null
+        val key = deriveKey(keyMaterial, auth)
         val nonce = byteArrayOf(
             ((counter ushr 24) and 0xFF).toByte(),
             ((counter ushr 16) and 0xFF).toByte(),
@@ -102,9 +124,9 @@ object Encryption2Probe {
         val encryptedTag = frame.copyOfRange(3 + bodyLength, 3 + bodyLength + 4)
         val receivedTag = xor(encryptedTag, aesEcb(key, byteArrayOf(0x01) + nonce + byteArrayOf(0x00, 0x00))).copyOf(4)
         val plaintext = frame.copyOfRange(0, 3) + body
-        if (!receivedTag.contentEquals(cbcMac(key, nonce, plaintext))) return null
-        if (body.size < 4 || body[0].toInt() and 0xFF != 0x04 || body[1].toInt() and 0xFF != 0x3E || body[2].toInt() and 0xFF != 0x5D) return null
-        return AuthResult(body[3].toInt() and 0xFF == 1, bytesToHex(frame) ?: "")
+        if (!MessageDigest.isEqual(receivedTag, cbcMac(key, nonce, plaintext))) return null
+        if (body.size < 4 || body[0].toInt() and 0xFF != 0x04 || body[1].toInt() and 0xFF != 0x3E || body[2].toInt() and 0xFF != command) return null
+        return HandshakeReply(command, body[3].toInt() and 0xFF, counter)
     }
 
     private fun deriveKey(key1: ByteArray, key2: ByteArray): ByteArray {

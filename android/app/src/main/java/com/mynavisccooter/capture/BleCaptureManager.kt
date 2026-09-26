@@ -12,11 +12,12 @@ import android.os.Looper
 import android.os.SystemClock
 import androidx.core.content.ContextCompat
 import java.util.UUID
+import java.security.SecureRandom
 
 data class ScannedScooter(val device: BluetoothDevice, val name: String, val rssi: Int,
     val manufacturerData: Map<String, String>, val model: ModelProfile)
 
-/** Serialized, bounded PRE_COMM capture. No pairing/password or configuration writes. */
+/** Serialized diagnostic connection with explicitly selected initial pairing. */
 @Suppress("DEPRECATION", "MissingPermission")
 @android.annotation.SuppressLint("MissingPermission")
 class BleCaptureManager(private val context: Context, private val listener: Listener) {
@@ -24,6 +25,7 @@ class BleCaptureManager(private val context: Context, private val listener: List
         fun onStatus(message: String)
         fun onDevicesChanged(devices: List<ScannedScooter>)
         fun onCaptureReady(report: CaptureReport)
+        fun onPairingAvailable(confirm: () -> Unit, cancel: () -> Unit)
     }
     private val adapter = context.getSystemService(BluetoothManager::class.java)?.adapter
     private val main = Handler(Looper.getMainLooper())
@@ -51,6 +53,13 @@ class BleCaptureManager(private val context: Context, private val listener: List
     private val subscribed = mutableListOf<String>()
     private val frames = ProbeFrameBuffer()
     private val credentialStore = EncryptedCredentialStore(context)
+    private var pendingStore: EncryptedCredentialStore? = null
+    private var sessionCredential: SessionCredentials? = null
+    private var pairing = PairingProgress()
+    private var pairingWriteAttempted = false
+    private var pairingAccepted = false
+    private var authCounter = 2
+    private var mtu = 23
 
     private fun event(message: String) {
         if (events.size < 200) events += "${SystemClock.elapsedRealtime() - started}ms $message"
@@ -112,6 +121,10 @@ class BleCaptureManager(private val context: Context, private val listener: List
         events.clear(); notifications.clear(); subscribed.clear(); frames.clear()
         services = emptyList(); result = null; requestHex = null
         authAttempted = false; authenticated = false
+        sessionCredential = null
+        pairing = PairingProgress()
+        pairingWriteAttempted = false; pairingAccepted = false; authCounter = 2; mtu = 23
+        pendingStore = EncryptedCredentialStore(context, "pending_" + item.device.address.replace(":", ""))
         authNote = "Autenticação de leitura não iniciada."
         attempted = false; reported = false
         started = SystemClock.elapsedRealtime()
@@ -161,6 +174,7 @@ class BleCaptureManager(private val context: Context, private val listener: List
         }
         override fun onMtuChanged(g: BluetoothGatt, mtu: Int, status: Int) = active(g) {
             event("mtu value=$mtu status=$status")
+            if (status == BluetoothGatt.GATT_SUCCESS) this@BleCaptureManager.mtu = mtu
             if (phase == "mtu") subscribe(g)
         }
         override fun onDescriptorWrite(g: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) = active(g) {
@@ -229,23 +243,55 @@ class BleCaptureManager(private val context: Context, private val listener: List
         event("notify characteristic=$uuid bytes=${value.size}")
         if (uuid != rxId || value.isEmpty()) return
         if (notifications.size >= 64) { finish("notification_limit"); return }
-        notifications += bytesToHex(value) ?: ""
+        // A pairing response may echo credential material. Do not export raw pairing traffic.
+        if (!pairingWriteAttempted) notifications += bytesToHex(value) ?: ""
         for (frame in frames.append(value)) {
             val parsed = Encryption2Probe.parsePreCommFrame(frame, selected!!.name)
             event("frame bytes=${frame.size} precommValid=${parsed != null}")
             if (parsed != null) {
-                result = parsed
                 if (phase != "precomm") {
                     event("duplicate_precomm_ignored")
                     continue
                 }
+                result = parsed
                 beginReadOnlyAuth(g, parsed)
                 return
             }
-            if (authAttempted) {
-                val auth = Encryption2Probe.parseAuthFrame(frame, credentialStore.load()?.passwordHex ?: "", result?.authParameterHex ?: "")
+            if (phase == "pairing" || phase == "button") {
+                val reply = Encryption2Probe.parsePairingFrame(frame, selected!!.name, result!!.authParameterHex)
+                if (reply == null) { event("pairing_frame_invalid"); continue }
+                event("pairing_reply index=${reply.index} counter=${reply.counter}")
+                when (pairing.accept(reply)) {
+                    PairingProgress.Action.WAIT_FOR_BUTTON -> {
+                        // Do not extend the bounded wait on repeated status messages.
+                        if (phase != "button") arm("button", 45000L)
+                        listener.onStatus("A scooter pediu confirmação. Prime uma vez o botão de ligar/desligar. A app continua automaticamente quando receber a autorização.")
+                    }
+                    PairingProgress.Action.AUTHENTICATE -> {
+                        pairingAccepted = true
+                        event("pairing_accepted_by_scooter")
+                        authCounter = 3
+                        sendAuth(g, result!!)
+                    }
+                    PairingProgress.Action.REJECT -> finish("pairing_rejected")
+                    PairingProgress.Action.IGNORE -> event("pairing_duplicate_ignored")
+                }
+                continue
+            }
+            if (phase == "auth" && authAttempted) {
+                val auth = Encryption2Probe.parseAuthFrame(frame, sessionCredential?.passwordHex ?: "", result?.authParameterHex ?: "")
                 if (auth != null) {
                     authenticated = auth.accepted
+                    if (auth.accepted) {
+                        try {
+                            credentialStore.save(sessionCredential!!)
+                            pendingStore?.clear()
+                        } catch (_: Exception) {
+                            authNote = "Autenticado, mas falhou a gravação local. A credencial pendente foi mantida."
+                            finish("authenticated_storage_failed")
+                            return
+                        }
+                    }
                     authNote = if (auth.accepted) "AUTH aceite; ainda não foram enviados comandos de leitura." else "AUTH recusado pela scooter."
                     finish(if (auth.accepted) "auth_received" else "auth_rejected")
                     return
@@ -255,27 +301,62 @@ class BleCaptureManager(private val context: Context, private val listener: List
     }
 
     private fun beginReadOnlyAuth(g: BluetoothGatt, pre: PreCommResult) {
-        if (pre.index == 0) {
-            authNote = "A scooter não indica password guardada; SET_PWD não é executado automaticamente."
-            finish("precomm_received_no_password")
+        if (pre.reportedSerial != selected?.name || !pre.reportedSerial.orEmpty().matches(Regex("[A-Za-z0-9]{14}"))) {
+            finish("serial_mismatch")
             return
         }
-        val credentials = credentialStore.load()
-        if (credentials == null) {
-            authNote = "Ligação BLE confirmada. Falta emparelhamento compatível com esta scooter: não existe credencial local. Nenhum pedido de autorização física foi enviado; premir o botão não substitui o protocolo de emparelhamento."
-            finish("precomm_received_no_credential")
+        if (mtu < 32) { finish("mtu_too_small_for_handshake"); return }
+        val credentials = pendingStore?.load()?.takeIf { it.serialNumber == pre.reportedSerial }
+            ?: credentialStore.load()?.takeIf { it.serialNumber == pre.reportedSerial }
+        if (credentials == null || pre.index == 0) {
+            authNote = "Emparelhamento inicial disponível; aguarda a escolha do proprietário."
+            arm("pairing_consent", 60000L)
+            listener.onPairingAvailable(
+                confirm = { if (gatt === g && !reported && phase == "pairing_consent") beginPairing(g, pre) },
+                cancel = { if (gatt === g && !reported && phase == "pairing_consent") finish("pairing_cancelled") }
+            )
             return
         }
-        if (credentials.serialNumber != selected?.name) {
-            authNote = "Credencial local pertence a outro número de série; AUTH bloqueado."
-            finish("precomm_received_wrong_credential")
+        sessionCredential = credentials
+        sendAuth(g, pre)
+    }
+
+    private fun beginPairing(g: BluetoothGatt, pre: PreCommResult) {
+        val password = ByteArray(16).also { SecureRandom().nextBytes(it) }
+        val candidate = SessionCredentials(pre.reportedSerial!!, bytesToHex(password)!!, null)
+        try {
+            // Persist BEFORE transmission so an interrupted handshake cannot lose the new key.
+            pendingStore!!.save(candidate)
+        } catch (_: Exception) {
+            finish("pairing_storage_failed")
             return
         }
+        sessionCredential = candidate
+        val frame = Encryption2Probe.buildPairingFrame(selected!!.name, candidate.passwordHex, pre.authParameterHex)
+        arm("pairing", 15000L)
+        pairingWriteAttempted = true
+        authNote = "Pedido de emparelhamento enviado; aguarda confirmação da scooter."
+        listener.onStatus("A pedir emparelhamento à scooter…")
+        val tx = g.getService(serviceId)?.getCharacteristic(txId)
+        if (tx == null) { finish("pairing_channel_missing"); return }
+        val accepted = if (Build.VERSION.SDK_INT >= 33) {
+            g.writeCharacteristic(tx, frame, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE) == BluetoothStatusCodes.SUCCESS
+        } else {
+            tx.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+            tx.value = frame
+            g.writeCharacteristic(tx)
+        }
+        event("set_pwd_enqueued=$accepted; credential and frame redacted")
+        if (!accepted) finish("pairing_rejected_by_stack")
+    }
+
+    private fun sendAuth(g: BluetoothGatt, pre: PreCommResult) {
+        val credentials = sessionCredential ?: return
         val tx = g.getService(serviceId)?.getCharacteristic(txId)
         if (tx == null) { authNote = "Canal Nordic UART indisponível para AUTH."; finish("auth_channel_missing"); return }
-        val frame = Encryption2Probe.buildAuthFrame(selected!!.name, credentials.passwordHex, pre.authParameterHex, pre.reportedSerial ?: selected!!.name)
+        val frame = Encryption2Probe.buildAuthFrame(selected!!.name, credentials.passwordHex, pre.authParameterHex, pre.reportedSerial!!, authCounter)
         authAttempted = true
-        authNote = "AUTH de leitura enviado; nenhum SET_PWD ou comando de configuração será enviado."
+        authNote = "AUTH enviado. A aguardar confirmação criptográfica da scooter."
         arm("auth", 10000L)
         val accepted = if (Build.VERSION.SDK_INT >= 33) {
             val code = g.writeCharacteristic(tx, frame, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE)
@@ -307,8 +388,10 @@ class BleCaptureManager(private val context: Context, private val listener: List
             item.name, item.device.address, item.rssi, item.manufacturerData, item.model, services,
             ProtocolProbeCapture(attempted, subscribed.toList(), requestHex, notifications.toList(), result,
                 authAttempted, authenticated, authNote,
-                "Only Nordic UART CCCD, PRE_COMM and optional owner-supplied read-only AUTH were written. No configuration or pairing changes."),
-            mapOf("readOnly" to true, "configurationWritesPerformed" to false, "firmwareFlashed" to false),
+                "PRE_COMM and AUTH diagnostics. SET_PWD only after owner selects pairing. Raw pairing traffic is omitted."),
+            mapOf("readOnly" to !pairingWriteAttempted, "configurationWritesPerformed" to false,
+                "firmwareFlashed" to false, "pairingWriteAttempted" to pairingWriteAttempted,
+                "pairingAcceptedByScooter" to pairingAccepted),
             events.toList(), outcome
         ))
     }
