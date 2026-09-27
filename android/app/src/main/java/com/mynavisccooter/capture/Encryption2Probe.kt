@@ -13,8 +13,11 @@ data class PreCommResult(
 
 data class AuthResult(
     val accepted: Boolean,
-    val frameHex: String
+    val frameHex: String,
+    val counter: Int
 )
+
+data class RegisterReply(val device: Int, val register: Int, val valueHex: String, val counter: Int)
 
 data class HandshakeReply(val command: Int, val index: Int, val counter: Int)
 
@@ -96,7 +99,21 @@ object Encryption2Probe {
 
     fun parseAuthFrame(frame: ByteArray, passwordHex: String, authHex: String): AuthResult? {
         val parsed = parseHandshake(frame, hexToBytes(passwordHex), authHex, 0x5D) ?: return null
-        return AuthResult(parsed.index == 1, bytesToHex(frame) ?: "")
+        return AuthResult(parsed.index == 1, bytesToHex(frame) ?: "", parsed.counter)
+    }
+
+    fun buildReadRegisterFrame(passwordHex: String, authHex: String, device: Int, register: Int, length: Int, counter: Int): ByteArray {
+        require(device in 0..255 && register in 0..255 && length in 1..255)
+        val plaintext = byteArrayOf(0x5A, 0xA5.toByte(), 0x01, 0x3E, device.toByte(), 0x01, register.toByte(), length.toByte())
+        return encryptHandshake(plaintext, hexToBytes(passwordHex), authHex, counter)
+    }
+
+    fun parseReadRegisterFrame(frame: ByteArray, passwordHex: String, authHex: String): RegisterReply? {
+        val decoded = decryptSession(frame, hexToBytes(passwordHex), authHex) ?: return null
+        val body = decoded.first
+        if (body.size < 4 || body[1].toInt() and 0xFF != 0x3E || body[2].toInt() and 0xFF != 0x04) return null
+        return RegisterReply(body[0].toInt() and 0xFF, body[3].toInt() and 0xFF,
+            bytesToHex(body.copyOfRange(4, body.size)) ?: "", decoded.second)
     }
 
     fun parsePairingFrame(
@@ -116,6 +133,13 @@ object Encryption2Probe {
     }
 
     private fun parseHandshake(frame: ByteArray, keyMaterial: ByteArray, authHex: String, command: Int): HandshakeReply? {
+        val decoded = decryptSession(frame, keyMaterial, authHex) ?: return null
+        val body = decoded.first
+        if (body.size < 4 || body[0].toInt() and 0xFF != 0x04 || body[1].toInt() and 0xFF != 0x3E || body[2].toInt() and 0xFF != command) return null
+        return HandshakeReply(command, body[3].toInt() and 0xFF, decoded.second)
+    }
+
+    private fun decryptSession(frame: ByteArray, keyMaterial: ByteArray, authHex: String): Pair<ByteArray, Int>? {
         if (frame.size < 13 || frame[0] != 0x5A.toByte() || frame[1] != 0xA5.toByte()) return null
         val length = frame[2].toInt() and 0xFF
         val total = length + 13
@@ -138,8 +162,7 @@ object Encryption2Probe {
         val receivedTag = xor(encryptedTag, aesEcb(key, byteArrayOf(0x01) + nonce + byteArrayOf(0x00, 0x00))).copyOf(4)
         val plaintext = frame.copyOfRange(0, 3) + body
         if (!MessageDigest.isEqual(receivedTag, cbcMac(key, nonce, plaintext))) return null
-        if (body.size < 4 || body[0].toInt() and 0xFF != 0x04 || body[1].toInt() and 0xFF != 0x3E || body[2].toInt() and 0xFF != command) return null
-        return HandshakeReply(command, body[3].toInt() and 0xFF, counter)
+        return body to counter
     }
 
     private fun deriveKey(key1: ByteArray, key2: ByteArray): ByteArray {

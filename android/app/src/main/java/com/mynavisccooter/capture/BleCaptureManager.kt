@@ -68,6 +68,9 @@ class BleCaptureManager(private val context: Context, private val listener: List
     private var mtu = 23
     private var forcePairing = false
     private var pairingReconnects = 0
+    private val initialState = mutableListOf<RegisterCapture>()
+    private var backupIndex = 0
+    private var readCounter = 4
 
     private fun event(message: String) {
         if (events.size < 200) events += "${SystemClock.elapsedRealtime() - started}ms $message"
@@ -128,7 +131,7 @@ class BleCaptureManager(private val context: Context, private val listener: List
         close()
         forcePairing = pairAgain
         selected = item
-        events.clear(); notifications.clear(); subscribed.clear(); frames.clear()
+        events.clear(); notifications.clear(); subscribed.clear(); frames.clear(); initialState.clear()
         services = emptyList(); result = null; requestHex = null
         authAttempted = false; authenticated = false
         sessionCredential = null
@@ -136,6 +139,7 @@ class BleCaptureManager(private val context: Context, private val listener: List
         pairingWriteAttempted = false; pairingAccepted = false
         authCounter = 2; pairingCounter = 2; pairingAttempts = 0; pairingRetry = null
         authAttempts = 0; authRetry = null; mtu = 23
+        backupIndex = 0; readCounter = 4
         pendingStore = EncryptedCredentialStore(context, "pending_" + item.device.address.replace(":", ""))
         authNote = "Autenticação de leitura não iniciada."
         attempted = false; reported = false
@@ -336,11 +340,54 @@ class BleCaptureManager(private val context: Context, private val listener: List
                         }
                     }
                     authNote = if (auth.accepted) "AUTH aceite; ainda não foram enviados comandos de leitura." else "AUTH recusado pela scooter."
-                    finish(if (auth.accepted) "auth_received" else "auth_rejected")
+                    if (auth.accepted) {
+                        readCounter = NinebotCounter.nextTxAfterReply(auth.counter)
+                        beginInitialStateRead(g)
+                    } else finish("auth_rejected")
                     return
                 }
             }
+            if (phase == "backup") {
+                val credential = sessionCredential ?: continue
+                val reply = Encryption2Probe.parseReadRegisterFrame(frame, credential.passwordHex, result?.authParameterHex ?: "") ?: continue
+                val expected = Zt3BackupPlan.required.getOrNull(backupIndex) ?: continue
+                if (reply.device != expected.device || reply.register != expected.register) {
+                    event("backup_unexpected device=${reply.device} register=${reply.register} counter=${reply.counter}")
+                    continue
+                }
+                initialState += RegisterCapture(reply.device, reply.register, expected.name, expected.length, reply.valueHex)
+                event("backup_reply name=${expected.name} bytes=${reply.valueHex.length / 2} counter=${reply.counter}")
+                backupIndex += 1
+                readCounter = NinebotCounter.nextTxAfterReply(reply.counter)
+                if (backupIndex == Zt3BackupPlan.required.size) {
+                    authNote = "AUTH aceite; estado inicial de configuração capturado apenas por leitura."
+                    finish("initial_state_captured")
+                } else sendNextBackupRead(g)
+                return
+            }
         }
+    }
+
+    private fun beginInitialStateRead(g: BluetoothGatt) {
+        initialState.clear(); backupIndex = 0
+        arm("backup", 20000L)
+        listener.onStatus("Autenticada. A guardar o estado inicial da scooter — apenas leitura, sem alterações…")
+        sendNextBackupRead(g)
+    }
+
+    private fun sendNextBackupRead(g: BluetoothGatt) {
+        val spec = Zt3BackupPlan.required.getOrNull(backupIndex) ?: return
+        val credential = sessionCredential ?: return
+        val tx = g.getService(serviceId)?.getCharacteristic(txId) ?: run { finish("backup_channel_missing"); return }
+        val frame = Encryption2Probe.buildReadRegisterFrame(credential.passwordHex, result!!.authParameterHex,
+            spec.device, spec.register, spec.length, readCounter)
+        val accepted = if (Build.VERSION.SDK_INT >= 33) {
+            g.writeCharacteristic(tx, frame, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE) == BluetoothStatusCodes.SUCCESS
+        } else {
+            tx.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE; tx.value = frame; g.writeCharacteristic(tx)
+        }
+        event("backup_read name=${spec.name} device=${spec.device} register=${spec.register} counter=$readCounter accepted=$accepted")
+        if (!accepted) finish("backup_read_rejected")
     }
 
     private fun beginReadOnlyAuth(g: BluetoothGatt, pre: PreCommResult) {
@@ -501,6 +548,7 @@ class BleCaptureManager(private val context: Context, private val listener: List
             ProtocolProbeCapture(attempted, subscribed.toList(), requestHex, notifications.toList(), result,
                 authAttempted, authenticated, authNote,
                 "PRE_COMM and AUTH diagnostics. SET_PWD only after owner selects pairing. Raw pairing traffic is omitted."),
+            initialState.toList(),
             mapOf("readOnly" to !pairingWriteAttempted, "configurationWritesPerformed" to false,
                 "firmwareFlashed" to false, "pairingWriteAttempted" to pairingWriteAttempted,
                 "pairingAcceptedByScooter" to pairingAccepted),

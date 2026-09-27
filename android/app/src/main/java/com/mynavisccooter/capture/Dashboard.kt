@@ -101,6 +101,7 @@ class Dashboard(private val context: Context) {
             "connect", "services", "mtu", "cccd", "precomm" -> "1  A ligar  →  2  Emparelhar  →  3  Autenticar"
             "pairing_consent", "pairing", "button" -> "1  Ligado  →  2  A emparelhar  →  3  Autenticar"
             "auth" -> "1  Ligado  →  2  Credencial local  →  3  A autenticar"
+            "backup" -> "1  Ligado  →  2  Autenticado  →  3  A guardar estado inicial"
             else -> "Sessão terminada · consulta o resultado abaixo"
         }
         steps.text = state

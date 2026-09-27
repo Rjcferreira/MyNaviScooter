@@ -31,6 +31,8 @@ data class ProtocolProbeCapture(
     val note: String
 )
 
+data class RegisterCapture(val device: Int, val register: Int, val name: String, val expectedBytes: Int, val valueHex: String)
+
 data class CaptureReport(
     val capturedAtUtc: String,
     val appVersion: String,
@@ -42,6 +44,7 @@ data class CaptureReport(
     val model: ModelProfile,
     val services: List<ServiceCapture>,
     val protocolProbe: ProtocolProbeCapture?,
+    val initialState: List<RegisterCapture> = emptyList(),
     val safety: Map<String, Any>,
     val diagnosticEvents: List<String> = emptyList(),
     val outcome: String = "unknown"
@@ -80,6 +83,9 @@ data class CaptureReport(
             } ?: "null"
             "{\"attempted\":${probe.attempted},\"notificationCharacteristics\":${probe.notificationCharacteristics.joinToString(",", "[", "]") { "\"${esc(it)}\"" }},\"requestHex\":${probe.requestHex?.let { "\"${esc(it)}\"" } ?: "null"},\"rawNotificationHex\":${probe.rawNotificationHex.joinToString(",", "[", "]") { "\"${esc(it)}\"" }},\"preComm\":$preComm,\"authenticationAttempted\":${probe.authenticationAttempted},\"authenticated\":${probe.authenticated},\"authenticationNote\":\"${esc(probe.authenticationNote)}\",\"note\":\"${esc(probe.note)}\"}"
         } ?: "null"
+        val stateJson = initialState.joinToString(",", "[", "]") { r ->
+            "{\"device\":${r.device},\"register\":${r.register},\"name\":\"${esc(r.name)}\",\"expectedBytes\":${r.expectedBytes},\"valueHex\":\"${esc(r.valueHex)}\"}"
+        }
 
         return """
             {
@@ -97,6 +103,7 @@ data class CaptureReport(
               "model":$modelJson,
               "services":$serviceJson,
               "protocolProbe":$probeJson,
+              "initialState":{"complete":${initialState.size == Zt3BackupPlan.required.size && initialState.all { it.valueHex.length == it.expectedBytes * 2 }},"captured":${initialState.size},"required":${Zt3BackupPlan.required.size},"registers":$stateJson},
               "safety":{"readOnly":${safety["readOnly"] == true},"configurationWritesPerformed":${safety["configurationWritesPerformed"] == true},"firmwareFlashed":${safety["firmwareFlashed"] == true},"pairingWriteAttempted":${safety["pairingWriteAttempted"] == true},"pairingAcceptedByScooter":${safety["pairingAcceptedByScooter"] == true},"note":"Pairing can change Bluetooth credentials. No scooter profile, speed or firmware commands are sent. Raw pairing traffic is excluded."}
             }
         """.trimIndent()

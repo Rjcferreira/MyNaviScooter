@@ -82,6 +82,7 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
             val ok = report.protocolProbe?.authenticated == true
             dashboard.status.text = when {
                 report.outcome == "authenticated_storage_failed" -> "A scooter autenticou, mas a gravação local falhou. Credencial pendente preservada."
+                report.outcome == "initial_state_captured" -> "Estado inicial capturado sem alterações. Exporta o diagnóstico para validação antes de ativarmos qualquer controlo."
                 ok -> "Autenticação confirmada. Credencial guardada. A sessão de diagnóstico terminou; os dados de condução ainda não estão disponíveis."
                 report.outcome == "timeout_auth" -> "Sem resposta à autenticação. A credencial pode estar desatualizada. Podes emparelhar novamente; as credenciais anteriores serão preservadas."
                 report.outcome == "pairing_rejected" -> "A scooter recusou o emparelhamento. Exporta o diagnóstico para análise."
