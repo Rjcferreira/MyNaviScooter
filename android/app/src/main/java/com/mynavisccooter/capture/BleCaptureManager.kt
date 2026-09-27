@@ -61,6 +61,8 @@ class BleCaptureManager(private val context: Context, private val listener: List
     private var pairingAccepted = false
     private var authCounter = 2
     private var pairingCounter = 2
+    private var pairingAttempts = 0
+    private var pairingRetry: Runnable? = null
     private var authAttempts = 0
     private var authRetry: Runnable? = null
     private var mtu = 23
@@ -131,7 +133,8 @@ class BleCaptureManager(private val context: Context, private val listener: List
         sessionCredential = null
         pairing = PairingProgress()
         pairingWriteAttempted = false; pairingAccepted = false
-        authCounter = 2; pairingCounter = 2; authAttempts = 0; authRetry = null; mtu = 23
+        authCounter = 2; pairingCounter = 2; pairingAttempts = 0; pairingRetry = null
+        authAttempts = 0; authRetry = null; mtu = 23
         pendingStore = EncryptedCredentialStore(context, "pending_" + item.device.address.replace(":", ""))
         authNote = "Autenticação de leitura não iniciada."
         attempted = false; reported = false
@@ -147,6 +150,8 @@ class BleCaptureManager(private val context: Context, private val listener: List
         stopScan()
         main.removeCallbacksAndMessages(null)
         timeout = null
+        pairingRetry?.let(main::removeCallbacks)
+        pairingRetry = null
         authRetry?.let(main::removeCallbacks)
         authRetry = null
         val old = gatt
@@ -277,6 +282,8 @@ class BleCaptureManager(private val context: Context, private val listener: List
                 pairingCounter = reply.counter + 2
                 when (pairing.accept(reply)) {
                     PairingProgress.Action.AUTHENTICATE -> {
+                        pairingRetry?.let(main::removeCallbacks)
+                        pairingRetry = null
                         event("pairing_random_acknowledged")
                         authCounter = reply.counter + 2
                         listener.onStatus("Chave aceite. A concluir a autorização física da scooter…")
@@ -355,6 +362,11 @@ class BleCaptureManager(private val context: Context, private val listener: List
         pairingWriteAttempted = true
         authNote = "Chave temporária enviada; aguarda confirmação física no botão da scooter."
         listener.onStatus("Prime agora uma vez o botão de ligar/desligar da scooter. Mantém a scooter ligada e próxima; a app continuará automaticamente.")
+        sendPairingAttempt(g, pre)
+    }
+
+    private fun sendPairingAttempt(g: BluetoothGatt, pre: PreCommResult) {
+        if (reported || phase != "button") return
         val credentials = sessionCredential ?: return
         val tx = g.getService(serviceId)?.getCharacteristic(txId)
         if (tx == null) { finish("pairing_channel_missing"); return }
@@ -368,8 +380,13 @@ class BleCaptureManager(private val context: Context, private val listener: List
             tx.value = frame
             g.writeCharacteristic(tx)
         }
-        event("pairing_enqueued=$accepted counter=$pairingCounter; credential and frame redacted")
+        pairingAttempts += 1
+        event("pairing_enqueued=$accepted attempt=$pairingAttempts counter=$pairingCounter; credential and frame redacted")
         if (!accepted) { finish("pairing_rejected_by_stack"); return }
+        pairingCounter += 1
+        pairingRetry = Runnable {
+            if (gatt === g && !reported && phase == "button") sendPairingAttempt(g, pre)
+        }.also { main.postDelayed(it, 1000L) }
     }
 
     private fun sendAuth(g: BluetoothGatt, pre: PreCommResult) {
@@ -405,6 +422,8 @@ class BleCaptureManager(private val context: Context, private val listener: List
         if (outcome == "timeout_auth") authNote = "A scooter não respondeu à autenticação. A credencial foi preservada. Podes escolher Emparelhar novamente."
         timeout?.let(main::removeCallbacks)
         timeout = null
+        pairingRetry?.let(main::removeCallbacks)
+        pairingRetry = null
         authRetry?.let(main::removeCallbacks)
         authRetry = null
         event("complete outcome=$outcome")
