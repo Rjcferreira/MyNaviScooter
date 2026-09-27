@@ -60,6 +60,9 @@ class BleCaptureManager(private val context: Context, private val listener: List
     private var pairingWriteAttempted = false
     private var pairingAccepted = false
     private var authCounter = 2
+    private var pairingCounter = 2
+    private var authAttempts = 0
+    private var authRetry: Runnable? = null
     private var mtu = 23
     private var forcePairing = false
 
@@ -127,7 +130,8 @@ class BleCaptureManager(private val context: Context, private val listener: List
         authAttempted = false; authenticated = false
         sessionCredential = null
         pairing = PairingProgress()
-        pairingWriteAttempted = false; pairingAccepted = false; authCounter = 2; mtu = 23
+        pairingWriteAttempted = false; pairingAccepted = false
+        authCounter = 2; pairingCounter = 2; authAttempts = 0; authRetry = null; mtu = 23
         pendingStore = EncryptedCredentialStore(context, "pending_" + item.device.address.replace(":", ""))
         authNote = "Autenticação de leitura não iniciada."
         attempted = false; reported = false
@@ -143,6 +147,8 @@ class BleCaptureManager(private val context: Context, private val listener: List
         stopScan()
         main.removeCallbacksAndMessages(null)
         timeout = null
+        authRetry?.let(main::removeCallbacks)
+        authRetry = null
         val old = gatt
         gatt = null
         reported = true
@@ -265,16 +271,15 @@ class BleCaptureManager(private val context: Context, private val listener: List
                 val reply = Encryption2Probe.parsePairingFrame(frame, selected!!.name, result!!.authParameterHex)
                 if (reply == null) { event("pairing_frame_invalid"); continue }
                 event("pairing_reply index=${reply.index} counter=${reply.counter}")
+                // NinebotCrypto uses one counter stream for both directions.
+                // Decrypting RX sets the internal counter to RX+1; the next TX
+                // increments once more, so its wire counter must be RX+2.
+                pairingCounter = reply.counter + 2
                 when (pairing.accept(reply)) {
-                    PairingProgress.Action.WAIT_FOR_BUTTON -> {
-                        // Do not extend the bounded wait on repeated status messages.
-                        if (phase != "button") arm("button", 45000L)
-                        listener.onStatus("A scooter pediu confirmação. Prime uma vez o botão de ligar/desligar. A app continua automaticamente quando receber a autorização.")
-                    }
                     PairingProgress.Action.AUTHENTICATE -> {
-                        pairingAccepted = true
-                        event("pairing_accepted_by_scooter")
-                        authCounter = 3
+                        event("pairing_random_acknowledged")
+                        authCounter = reply.counter + 2
+                        listener.onStatus("Chave aceite. A concluir a autorização física da scooter…")
                         sendAuth(g, result!!)
                     }
                     PairingProgress.Action.REJECT -> finish("pairing_rejected")
@@ -285,8 +290,11 @@ class BleCaptureManager(private val context: Context, private val listener: List
             if (phase == "auth" && authAttempted) {
                 val auth = Encryption2Probe.parseAuthFrame(frame, sessionCredential?.passwordHex ?: "", result?.authParameterHex ?: "")
                 if (auth != null) {
+                    authRetry?.let(main::removeCallbacks)
+                    authRetry = null
                     authenticated = auth.accepted
                     if (auth.accepted) {
+                        pairingAccepted = pairingWriteAttempted
                         try {
                             credentialStore.save(sessionCredential!!)
                             pendingStore?.clear()
@@ -343,13 +351,16 @@ class BleCaptureManager(private val context: Context, private val listener: List
             return
         }
         sessionCredential = candidate
-        val frame = Encryption2Probe.buildPairingFrame(selected!!.name, candidate.passwordHex, pre.authParameterHex)
-        arm("pairing", 15000L)
+        arm("button", 30000L)
         pairingWriteAttempted = true
-        authNote = "Pedido de emparelhamento enviado; aguarda confirmação da scooter."
-        listener.onStatus("A pedir emparelhamento à scooter…")
+        authNote = "Chave temporária enviada; aguarda confirmação física no botão da scooter."
+        listener.onStatus("Prime agora uma vez o botão de ligar/desligar da scooter. Mantém a scooter ligada e próxima; a app continuará automaticamente.")
+        val credentials = sessionCredential ?: return
         val tx = g.getService(serviceId)?.getCharacteristic(txId)
         if (tx == null) { finish("pairing_channel_missing"); return }
+        val frame = Encryption2Probe.buildPairingFrame(
+            selected!!.name, credentials.passwordHex, pre.authParameterHex, pairingCounter
+        )
         val accepted = if (Build.VERSION.SDK_INT >= 33) {
             g.writeCharacteristic(tx, frame, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE) == BluetoothStatusCodes.SUCCESS
         } else {
@@ -357,8 +368,8 @@ class BleCaptureManager(private val context: Context, private val listener: List
             tx.value = frame
             g.writeCharacteristic(tx)
         }
-        event("set_pwd_enqueued=$accepted; credential and frame redacted")
-        if (!accepted) finish("pairing_rejected_by_stack")
+        event("pairing_enqueued=$accepted counter=$pairingCounter; credential and frame redacted")
+        if (!accepted) { finish("pairing_rejected_by_stack"); return }
     }
 
     private fun sendAuth(g: BluetoothGatt, pre: PreCommResult) {
@@ -368,7 +379,7 @@ class BleCaptureManager(private val context: Context, private val listener: List
         val frame = Encryption2Probe.buildAuthFrame(selected!!.name, credentials.passwordHex, pre.authParameterHex, pre.reportedSerial!!, authCounter)
         authAttempted = true
         authNote = "AUTH enviado. A aguardar confirmação criptográfica da scooter."
-        arm("auth", 10000L)
+        if (phase != "auth") arm("auth", 10000L)
         val accepted = if (Build.VERSION.SDK_INT >= 33) {
             val code = g.writeCharacteristic(tx, frame, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE)
             event("auth enqueue status=$code characteristic=$txId bytes=${frame.size}")
@@ -378,8 +389,15 @@ class BleCaptureManager(private val context: Context, private val listener: List
             tx.value = frame
             g.writeCharacteristic(tx)
         }
-        event("auth accepted=$accepted; enqueue is not peer acknowledgement")
-        if (!accepted) finish("auth_rejected_by_stack")
+        authAttempts += 1
+        event("auth accepted=$accepted attempt=$authAttempts counter=$authCounter; enqueue is not peer acknowledgement")
+        if (!accepted) { finish("auth_rejected_by_stack"); return }
+        authCounter += 1
+        if (authAttempts < 4) {
+            authRetry = Runnable {
+                if (gatt === g && !reported && phase == "auth") sendAuth(g, pre)
+            }.also { main.postDelayed(it, 1000L) }
+        }
     }
     private fun finish(outcome: String) {
         if (reported) return
@@ -387,6 +405,8 @@ class BleCaptureManager(private val context: Context, private val listener: List
         if (outcome == "timeout_auth") authNote = "A scooter não respondeu à autenticação. A credencial foi preservada. Podes escolher Emparelhar novamente."
         timeout?.let(main::removeCallbacks)
         timeout = null
+        authRetry?.let(main::removeCallbacks)
+        authRetry = null
         event("complete outcome=$outcome")
         val connection = gatt
         gatt = null

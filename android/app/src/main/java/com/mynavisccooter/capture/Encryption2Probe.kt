@@ -74,11 +74,11 @@ object Encryption2Probe {
         return encryptHandshake(plaintext, password, authHex, counter)
     }
 
-    fun buildPairingFrame(deviceName: String, passwordHex: String, authHex: String): ByteArray {
+    fun buildPairingFrame(deviceName: String, passwordHex: String, authHex: String, counter: Int = 2): ByteArray {
         val password = hexToBytes(passwordHex)
         require(password.size == 16)
         val plaintext = byteArrayOf(0x5A, 0xA5.toByte(), 16, 0x3E, 0x04, 0x5C, 0) + password
-        return encryptHandshake(plaintext, deviceName.toByteArray(Charsets.US_ASCII), authHex, 2)
+        return encryptHandshake(plaintext, deviceName.toByteArray(Charsets.US_ASCII), authHex, counter)
     }
 
     private fun encryptHandshake(plaintext: ByteArray, keyMaterial: ByteArray, authHex: String, counter: Int): ByteArray {

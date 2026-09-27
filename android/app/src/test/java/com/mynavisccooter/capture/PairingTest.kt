@@ -20,14 +20,27 @@ class PairingTest {
             Encryption2Probe.buildAuthFrame(name, password, auth, name, 3))
     }
 
+    @Test fun wireCounterIsExplicitAndAdvancesAcrossHandshakeFrames() {
+        val pair2 = Encryption2Probe.buildPairingFrame(name, password, auth, 2)
+        val pair5 = Encryption2Probe.buildPairingFrame(name, password, auth, 5)
+        assertEquals(0, pair2[pair2.lastIndex - 1].toInt() and 0xFF)
+        assertEquals(2, pair2.last().toInt() and 0xFF)
+        assertEquals(5, pair5.last().toInt() and 0xFF)
+        assertFalse(pair2.contentEquals(pair5))
+
+        val auth5 = Encryption2Probe.buildAuthFrame(name, password, auth, name, 5)
+        assertEquals(5, auth5.last().toInt() and 0xFF)
+    }
+
     @Test fun zeroPayloadRepliesAreValidAndOnlyPeerReplyAuthorizes() {
         val progress = PairingProgress()
         val wait = Encryption2Probe.parsePairingFrame(waiting, name, auth)!!
-        assertEquals(PairingProgress.Action.WAIT_FOR_BUTTON, progress.accept(wait))
+        assertEquals(PairingProgress.Action.AUTHENTICATE, progress.accept(wait))
         assertEquals(PairingProgress.Action.IGNORE, progress.accept(wait))
+        val acceptedProgress = PairingProgress()
         val accept = Encryption2Probe.parsePairingFrame(accepted, name, auth)!!
-        assertEquals(PairingProgress.Action.AUTHENTICATE, progress.accept(accept))
-        assertEquals(PairingProgress.Action.IGNORE, progress.accept(accept))
+        assertEquals(PairingProgress.Action.AUTHENTICATE, acceptedProgress.accept(accept))
+        assertEquals(PairingProgress.Action.IGNORE, acceptedProgress.accept(accept))
         assertTrue(Encryption2Probe.parseAuthFrame(authenticated, password, auth)!!.accepted)
     }
 
@@ -45,9 +58,10 @@ class PairingTest {
 
     @Test fun rejectsUnknownStatusAndIgnoresOutOfOrderReplies() {
         val progress = PairingProgress()
-        assertEquals(PairingProgress.Action.WAIT_FOR_BUTTON, progress.accept(HandshakeReply(0x5C, 0, 4)))
+        assertEquals(PairingProgress.Action.AUTHENTICATE, progress.accept(HandshakeReply(0x5C, 0, 4)))
         assertEquals(PairingProgress.Action.IGNORE, progress.accept(HandshakeReply(0x5C, 1, 3)))
-        assertEquals(PairingProgress.Action.REJECT, progress.accept(HandshakeReply(0x5C, 2, 5)))
+        val rejected = PairingProgress()
+        assertEquals(PairingProgress.Action.REJECT, rejected.accept(HandshakeReply(0x5C, 2, 5)))
         assertEquals(PairingProgress.Action.IGNORE, progress.accept(HandshakeReply(0x5C, 1, 6)))
     }
 
