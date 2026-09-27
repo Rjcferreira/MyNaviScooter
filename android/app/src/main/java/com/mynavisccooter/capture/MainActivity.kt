@@ -36,6 +36,7 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
         val view = dashboard.create(
             onScan = { if (permissionsReady()) { dashboard.recover.visibility = View.GONE; ble.startScan() } else requestPermissions() },
             onRecover = { selected?.let { connect(it, true) } },
+            onDeepScan = { confirmDeepScan() },
             onApply = { confirmOperation(RequestedOperation.APPLY_25_30) },
             onRestore = { confirmOperation(RequestedOperation.RESTORE_INITIAL) },
             onExport = { exportReport() }, onSettings = { settings() }
@@ -48,6 +49,16 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
             insets
         }
         ViewCompat.requestApplyInsets(container)
+    }
+
+    private fun confirmDeepScan() {
+        val item = selected ?: return
+        AlertDialog.Builder(this)
+            .setTitle("Scanner profundo só de leitura?")
+            .setMessage("A app autenticará, verificará primeiro o backup inicial e lerá os 25 registos documentados da VCU, MCU, BLE e BMS. Não escreve configurações, não altera a região e não lê a memória flash.")
+            .setNegativeButton("Cancelar", null)
+            .setPositiveButton("Iniciar scanner") { _, _ -> connect(item, false, RequestedOperation.DEEP_SCAN) }
+            .show()
     }
 
     private fun confirmOperation(operation: RequestedOperation) {
@@ -97,6 +108,8 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
             dashboard.status.text = when {
                 report.outcome == "authenticated_storage_failed" -> "A scooter autenticou, mas a gravação local falhou. Credencial pendente preservada."
                 report.outcome == "initial_state_saved" -> "Estado inicial cifrado e verificado. Os controlos limitados estão disponíveis."
+                report.outcome == "deep_scan_complete" -> "Scanner profundo concluído: todos os registos documentados responderam. Exporta o relatório para análise."
+                report.outcome == "deep_scan_partial" -> "Scanner profundo parcial: alguns registos não responderam. O relatório identifica cada um."
                 report.outcome == "profile_write_verified" -> "Os dois limites foram escritos e confirmados por releitura."
                 report.outcome == "profile_write_not_persisted" -> "A scooter confirmou a escrita, mas devolveu outro valor na releitura. Nenhuma outra configuração foi tocada."
                 report.outcome == "region_change_required" -> "A região alemã rejeitou Sport 30. A escrita direta foi bloqueada; restaura primeiro os limites iniciais."
@@ -112,6 +125,7 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
             val baselineReady = report.outcome in setOf("initial_state_saved", "profile_write_verified", "profile_write_not_persisted", "region_change_required")
             dashboard.applyProfile.visibility = if (baselineReady) View.VISIBLE else View.GONE
             dashboard.restoreProfile.visibility = if (baselineReady) View.VISIBLE else View.GONE
+            dashboard.deepScan.visibility = if (ok) View.VISIBLE else View.GONE
             dashboard.export.isEnabled = true; dashboard.export.alpha = 1f
         }
     }

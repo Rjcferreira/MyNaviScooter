@@ -16,7 +16,7 @@ import java.security.SecureRandom
 
 data class ScannedScooter(val device: BluetoothDevice, val name: String, val rssi: Int,
     val manufacturerData: Map<String, String>, val model: ModelProfile)
-enum class RequestedOperation { CAPTURE, APPLY_25_30, RESTORE_INITIAL }
+enum class RequestedOperation { CAPTURE, DEEP_SCAN, APPLY_25_30, RESTORE_INITIAL }
 
 /** Serialized diagnostic connection with explicitly selected initial pairing. */
 @Suppress("DEPRECATION", "MissingPermission")
@@ -78,6 +78,9 @@ class BleCaptureManager(private val context: Context, private val listener: List
     private var writeIndex = 0
     private var configurationWritesPerformed = false
     private var verifyWriteIndex = 0
+    private val deepScanResults = mutableListOf<RegisterCapture>()
+    private val deepScanTimeouts = mutableListOf<String>()
+    private var deepScanIndex = 0
 
     private fun event(message: String) {
         if (events.size < 200) events += "${SystemClock.elapsedRealtime() - started}ms $message"
@@ -140,6 +143,7 @@ class BleCaptureManager(private val context: Context, private val listener: List
         requestedOperation = operation
         selected = item
         events.clear(); notifications.clear(); subscribed.clear(); frames.clear(); initialState.clear()
+        deepScanResults.clear(); deepScanTimeouts.clear(); deepScanIndex = 0
         services = emptyList(); result = null; requestHex = null
         authAttempted = false; authenticated = false
         sessionCredential = null
@@ -374,6 +378,21 @@ class BleCaptureManager(private val context: Context, private val listener: List
                 } else sendNextBackupRead(g)
                 return
             }
+            if (phase == "deep_scan") {
+                val credential = sessionCredential ?: continue
+                val reply = Encryption2Probe.parseReadRegisterFrame(frame, credential.passwordHex, result?.authParameterHex ?: "") ?: continue
+                val expected = Zt3DeepScanPlan.documented.getOrNull(deepScanIndex) ?: continue
+                if (reply.device != expected.device || reply.register != expected.register) {
+                    event("deep_scan_unexpected device=${reply.device} register=${reply.register} counter=${reply.counter}")
+                    continue
+                }
+                deepScanResults += RegisterCapture(reply.device, reply.register, expected.name, expected.length, reply.valueHex)
+                event("deep_scan_reply name=${expected.name} bytes=${reply.valueHex.length / 2} counter=${reply.counter}")
+                deepScanIndex += 1
+                readCounter = NinebotCounter.nextTxAfterReply(reply.counter)
+                sendNextDeepScanRead(g)
+                return
+            }
             if (phase == "write") {
                 val credential = sessionCredential ?: continue
                 val reply = Encryption2Probe.parseWriteRegisterFrame(frame, credential.passwordHex, result?.authParameterHex ?: "") ?: continue
@@ -417,6 +436,10 @@ class BleCaptureManager(private val context: Context, private val listener: List
         if (requestedOperation == RequestedOperation.CAPTURE) {
             authNote = "AUTH aceite; estado inicial cifrado e verificado localmente."
             finish("initial_state_saved"); return
+        }
+        if (requestedOperation == RequestedOperation.DEEP_SCAN) {
+            beginDeepScan(g)
+            return
         }
         val reg47 = baseline.register(0x16, 0x47) ?: run { finish("baseline_speed_missing"); return }
         val reg48 = baseline.register(0x16, 0x48) ?: run { finish("baseline_speed_missing"); return }
@@ -493,6 +516,48 @@ class BleCaptureManager(private val context: Context, private val listener: List
         }
         event("backup_read name=${spec.name} device=${spec.device} register=${spec.register} counter=$readCounter accepted=$accepted")
         if (!accepted) finish("backup_read_rejected")
+    }
+
+    private fun beginDeepScan(g: BluetoothGatt) {
+        deepScanResults.clear(); deepScanTimeouts.clear(); deepScanIndex = 0
+        authNote = "AUTH aceite; backup inicial verificado. Inventário profundo apenas de leitura iniciado."
+        listener.onStatus("Backup protegido. A ler os 25 registos documentados da VCU, MCU, BLE e BMS…")
+        sendNextDeepScanRead(g)
+    }
+
+    private fun sendNextDeepScanRead(g: BluetoothGatt) {
+        timeout?.let(main::removeCallbacks)
+        val spec = Zt3DeepScanPlan.documented.getOrNull(deepScanIndex)
+        if (spec == null) {
+            finish(if (deepScanTimeouts.isEmpty()) "deep_scan_complete" else "deep_scan_partial")
+            return
+        }
+        phase = "deep_scan"
+        listener.onStage("deep_scan")
+        val credential = sessionCredential ?: run { finish("deep_scan_credential_missing"); return }
+        val tx = g.getService(serviceId)?.getCharacteristic(txId) ?: run { finish("deep_scan_channel_missing"); return }
+        val frame = Encryption2Probe.buildReadRegisterFrame(credential.passwordHex, result!!.authParameterHex,
+            spec.device, spec.register, spec.length, readCounter)
+        val accepted = if (Build.VERSION.SDK_INT >= 33) {
+            g.writeCharacteristic(tx, frame, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE) == BluetoothStatusCodes.SUCCESS
+        } else {
+            tx.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE; tx.value = frame; g.writeCharacteristic(tx)
+        }
+        event("deep_scan_read index=$deepScanIndex name=${spec.name} device=${spec.device} register=${spec.register} length=${spec.length} counter=$readCounter accepted=$accepted")
+        if (!accepted) {
+            deepScanTimeouts += "${spec.name}:stack_rejected"
+            deepScanIndex += 1; readCounter += 1
+            main.postDelayed({ if (gatt === g && !reported && phase == "deep_scan") sendNextDeepScanRead(g) }, 150L)
+            return
+        }
+        timeout = Runnable {
+            if (gatt !== g || reported || phase != "deep_scan") return@Runnable
+            deepScanTimeouts += "${spec.name}:timeout"
+            event("deep_scan_timeout name=${spec.name}")
+            deepScanIndex += 1; readCounter += 1
+            sendNextDeepScanRead(g)
+        }.also { main.postDelayed(it, 2500L) }
+        listener.onStatus("Scanner profundo ${deepScanIndex + 1}/${Zt3DeepScanPlan.documented.size}: ${spec.name}")
     }
 
     private fun beginReadOnlyAuth(g: BluetoothGatt, pre: PreCommResult) {
@@ -654,6 +719,7 @@ class BleCaptureManager(private val context: Context, private val listener: List
                 authAttempted, authenticated, authNote,
                 "PRE_COMM and AUTH diagnostics. SET_PWD only after owner selects pairing. Raw pairing traffic is omitted."),
             initialState.toList(),
+            if (requestedOperation == RequestedOperation.DEEP_SCAN) DeepScanCapture(results = deepScanResults.toList(), timedOut = deepScanTimeouts.toList()) else null,
             mapOf("readOnly" to (!pairingWriteAttempted && !configurationWritesPerformed), "configurationWritesPerformed" to configurationWritesPerformed,
                 "firmwareFlashed" to false, "pairingWriteAttempted" to pairingWriteAttempted,
                 "pairingAcceptedByScooter" to pairingAccepted),

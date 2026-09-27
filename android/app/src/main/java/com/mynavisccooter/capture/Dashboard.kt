@@ -22,6 +22,7 @@ class Dashboard(private val context: Context) {
     lateinit var badge: TextView
     lateinit var applyProfile: Button
     lateinit var restoreProfile: Button
+    lateinit var deepScan: Button
     private lateinit var steps: TextView
     private lateinit var selected: TextView
     fun dp(n: Int) = (n * context.resources.displayMetrics.density).toInt()
@@ -44,7 +45,7 @@ class Dashboard(private val context: Context) {
         layoutParams = LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6); bottomMargin = dp(8) }
         setOnClickListener { action() }
     }
-    fun create(onScan: () -> Unit, onRecover: () -> Unit, onApply: () -> Unit, onRestore: () -> Unit, onExport: () -> Unit, onSettings: () -> Unit): View {
+    fun create(onScan: () -> Unit, onRecover: () -> Unit, onDeepScan: () -> Unit, onApply: () -> Unit, onRestore: () -> Unit, onExport: () -> Unit, onSettings: () -> Unit): View {
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL; setPadding(dp(22), dp(20), dp(22), dp(24)); setBackgroundColor(ink)
         }
@@ -84,6 +85,13 @@ class Dashboard(private val context: Context) {
         recover = button("Emparelhar novamente", false, onRecover).apply { visibility = View.GONE }
         connection.addView(recover)
         root.addView(connection)
+        val diagnostics = card()
+        diagnostics.addView(label("DIAGNÓSTICO AVANÇADO", 11f, muted).apply { letterSpacing = .13f })
+        diagnostics.addView(label("Scanner profundo ZT3", 20f).apply { setTypeface(null, Typeface.BOLD) })
+        diagnostics.addView(label("Inventário só de leitura dos registos documentados da VCU, MCU, BLE e BMS. Não é um dump de firmware.", 13f, muted))
+        deepScan = button("Ler informação completa conhecida", false, onDeepScan).apply { visibility = View.GONE }
+        diagnostics.addView(deepScan)
+        root.addView(diagnostics)
         val profile = card()
         profile.addView(label("PERFIS DE CONDUÇÃO", 11f, muted).apply { letterSpacing = .13f })
         profile.addView(label("Original", 22f).apply { setTypeface(null, Typeface.BOLD) })
@@ -107,6 +115,7 @@ class Dashboard(private val context: Context) {
             "pairing_consent", "pairing", "button" -> "1  Ligado  →  2  A emparelhar  →  3  Autenticar"
             "auth" -> "1  Ligado  →  2  Credencial local  →  3  A autenticar"
             "backup" -> "1  Ligado  →  2  Autenticado  →  3  A guardar estado inicial"
+            "deep_scan" -> "1  Backup protegido  →  2  Autenticado  →  3  Scanner profundo"
             "write", "verify_write" -> "1  Ligado  →  2  Estado protegido  →  3  A aplicar e confirmar"
             else -> "Sessão terminada · consulta o resultado abaixo"
         }

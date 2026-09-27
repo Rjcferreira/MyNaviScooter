@@ -33,6 +33,13 @@ data class ProtocolProbeCapture(
 
 data class RegisterCapture(val device: Int, val register: Int, val name: String, val expectedBytes: Int, val valueHex: String)
 
+data class DeepScanCapture(
+    val plan: String = "zt3-documented-registers/v1",
+    val readOnly: Boolean = true,
+    val results: List<RegisterCapture> = emptyList(),
+    val timedOut: List<String> = emptyList()
+)
+
 data class CaptureReport(
     val capturedAtUtc: String,
     val appVersion: String,
@@ -45,6 +52,7 @@ data class CaptureReport(
     val services: List<ServiceCapture>,
     val protocolProbe: ProtocolProbeCapture?,
     val initialState: List<RegisterCapture> = emptyList(),
+    val deepScan: DeepScanCapture? = null,
     val safety: Map<String, Any>,
     val diagnosticEvents: List<String> = emptyList(),
     val outcome: String = "unknown"
@@ -86,6 +94,12 @@ data class CaptureReport(
         val stateJson = initialState.joinToString(",", "[", "]") { r ->
             "{\"device\":${r.device},\"register\":${r.register},\"name\":\"${esc(r.name)}\",\"expectedBytes\":${r.expectedBytes},\"valueHex\":\"${esc(r.valueHex)}\"}"
         }
+        val deepScanJson = deepScan?.let { scan ->
+            val rows = scan.results.joinToString(",", "[", "]") { r ->
+                "{\"device\":${r.device},\"register\":${r.register},\"name\":\"${esc(r.name)}\",\"expectedBytes\":${r.expectedBytes},\"valueHex\":\"${esc(r.valueHex)}\"}"
+            }
+            "{\"plan\":\"${esc(scan.plan)}\",\"readOnly\":${scan.readOnly},\"captured\":${scan.results.size},\"requested\":${Zt3DeepScanPlan.documented.size},\"timedOut\":${scan.timedOut.joinToString(",", "[", "]") { "\"${esc(it)}\"" }},\"registers\":$rows}"
+        } ?: "null"
 
         return """
             {
@@ -104,6 +118,7 @@ data class CaptureReport(
               "services":$serviceJson,
               "protocolProbe":$probeJson,
               "initialState":{"complete":${initialState.size == Zt3BackupPlan.required.size && initialState.all { it.valueHex.length == it.expectedBytes * 2 }},"captured":${initialState.size},"required":${Zt3BackupPlan.required.size},"registers":$stateJson},
+              "deepScan":$deepScanJson,
               "safety":{"readOnly":${safety["readOnly"] == true},"configurationWritesPerformed":${safety["configurationWritesPerformed"] == true},"firmwareFlashed":${safety["firmwareFlashed"] == true},"pairingWriteAttempted":${safety["pairingWriteAttempted"] == true},"pairingAcceptedByScooter":${safety["pairingAcceptedByScooter"] == true},"note":"Pairing may change Bluetooth credentials. Configuration writes, when requested, are limited to speed registers 0x47 and 0x48. Firmware commands are never sent."}
             }
         """.trimIndent()
