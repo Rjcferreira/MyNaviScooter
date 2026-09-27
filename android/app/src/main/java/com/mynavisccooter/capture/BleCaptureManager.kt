@@ -16,6 +16,7 @@ import java.security.SecureRandom
 
 data class ScannedScooter(val device: BluetoothDevice, val name: String, val rssi: Int,
     val manufacturerData: Map<String, String>, val model: ModelProfile)
+enum class RequestedOperation { CAPTURE, APPLY_25_30, RESTORE_INITIAL }
 
 /** Serialized diagnostic connection with explicitly selected initial pairing. */
 @Suppress("DEPRECATION", "MissingPermission")
@@ -71,6 +72,11 @@ class BleCaptureManager(private val context: Context, private val listener: List
     private val initialState = mutableListOf<RegisterCapture>()
     private var backupIndex = 0
     private var readCounter = 4
+    private val baselineStore = BaselineStore(context)
+    private var requestedOperation = RequestedOperation.CAPTURE
+    private var writeQueue = mutableListOf<RegisterCapture>()
+    private var writeIndex = 0
+    private var configurationWritesPerformed = false
 
     private fun event(message: String) {
         if (events.size < 200) events += "${SystemClock.elapsedRealtime() - started}ms $message"
@@ -126,10 +132,11 @@ class BleCaptureManager(private val context: Context, private val listener: List
         if (scanning && hasScanPermission()) runCatching { adapter?.bluetoothLeScanner?.stopScan(scanCallback) }
         scanning = false
     }
-    fun connect(item: ScannedScooter, pairAgain: Boolean = false) {
+    fun connect(item: ScannedScooter, pairAgain: Boolean = false, operation: RequestedOperation = RequestedOperation.CAPTURE) {
         if (!hasConnectPermission()) { listener.onStatus("Permissão de ligação Bluetooth necessária"); return }
         close()
         forcePairing = pairAgain
+        requestedOperation = operation
         selected = item
         events.clear(); notifications.clear(); subscribed.clear(); frames.clear(); initialState.clear()
         services = emptyList(); result = null; requestHex = null
@@ -139,6 +146,7 @@ class BleCaptureManager(private val context: Context, private val listener: List
         pairingWriteAttempted = false; pairingAccepted = false
         authCounter = 2; pairingCounter = 2; pairingAttempts = 0; pairingRetry = null
         authAttempts = 0; authRetry = null; mtu = 23
+        configurationWritesPerformed = false
         backupIndex = 0; readCounter = 4
         pendingStore = EncryptedCredentialStore(context, "pending_" + item.device.address.replace(":", ""))
         authNote = "Autenticação de leitura não iniciada."
@@ -360,12 +368,60 @@ class BleCaptureManager(private val context: Context, private val listener: List
                 backupIndex += 1
                 readCounter = NinebotCounter.nextTxAfterReply(reply.counter)
                 if (backupIndex == Zt3BackupPlan.required.size) {
-                    authNote = "AUTH aceite; estado inicial de configuração capturado apenas por leitura."
-                    finish("initial_state_captured")
+                    completeBaselineOrWrite(g)
                 } else sendNextBackupRead(g)
                 return
             }
+            if (phase == "write") {
+                val credential = sessionCredential ?: continue
+                val reply = Encryption2Probe.parseWriteRegisterFrame(frame, credential.passwordHex, result?.authParameterHex ?: "") ?: continue
+                val expected = writeQueue.getOrNull(writeIndex) ?: continue
+                if (reply.device != expected.device || reply.register != expected.register || !reply.accepted) {
+                    finish("profile_write_rejected"); return
+                }
+                event("profile_write_ack name=${expected.name} counter=${reply.counter}")
+                writeIndex += 1; readCounter = NinebotCounter.nextTxAfterReply(reply.counter)
+                if (writeIndex == writeQueue.size) finish("profile_write_applied") else sendNextWrite(g)
+                return
+            }
         }
+    }
+
+    private fun completeBaselineOrWrite(g: BluetoothGatt) {
+        val serial = result?.reportedSerial ?: run { finish("baseline_serial_missing"); return }
+        val captured = InitialBaseline(serial, initialState.toList())
+        if (!baselineStore.saveFirst(captured)) { finish("baseline_store_failed"); return }
+        val baseline = baselineStore.load()
+        if (baseline == null || baseline.serial != serial || baseline.registers.size != Zt3BackupPlan.required.size) {
+            finish("baseline_verify_failed"); return
+        }
+        if (requestedOperation == RequestedOperation.CAPTURE) {
+            authNote = "AUTH aceite; estado inicial cifrado e verificado localmente."
+            finish("initial_state_saved"); return
+        }
+        val reg47 = baseline.register(0x16, 0x47) ?: run { finish("baseline_speed_missing"); return }
+        val reg48 = baseline.register(0x16, 0x48) ?: run { finish("baseline_speed_missing"); return }
+        writeQueue = if (requestedOperation == RequestedOperation.RESTORE_INITIAL) mutableListOf(reg47, reg48) else mutableListOf(
+            reg47.copy(valueHex = reg47.valueHex.take(2) + "19"),
+            reg48.copy(valueHex = "1E1E")
+        )
+        writeIndex = 0; arm("write", 10000L)
+        listener.onStatus(if (requestedOperation == RequestedOperation.RESTORE_INITIAL) "A restaurar os limites guardados…" else "A aplicar apenas Drive 25 e Sport 30…")
+        sendNextWrite(g)
+    }
+
+    private fun sendNextWrite(g: BluetoothGatt) {
+        val item = writeQueue.getOrNull(writeIndex) ?: return
+        val credential = sessionCredential ?: return
+        val tx = g.getService(serviceId)?.getCharacteristic(txId) ?: run { finish("write_channel_missing"); return }
+        val frame = Encryption2Probe.buildWriteRegisterFrame(credential.passwordHex, result!!.authParameterHex,
+            item.device, item.register, item.valueHex, readCounter)
+        val accepted = if (Build.VERSION.SDK_INT >= 33) g.writeCharacteristic(tx, frame,
+            BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE) == BluetoothStatusCodes.SUCCESS else {
+            tx.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE; tx.value = frame; g.writeCharacteristic(tx)
+        }
+        event("profile_write name=${item.name} value=${item.valueHex} counter=$readCounter accepted=$accepted")
+        if (!accepted) finish("profile_write_stack_rejected") else configurationWritesPerformed = true
     }
 
     private fun beginInitialStateRead(g: BluetoothGatt) {
@@ -549,7 +605,7 @@ class BleCaptureManager(private val context: Context, private val listener: List
                 authAttempted, authenticated, authNote,
                 "PRE_COMM and AUTH diagnostics. SET_PWD only after owner selects pairing. Raw pairing traffic is omitted."),
             initialState.toList(),
-            mapOf("readOnly" to !pairingWriteAttempted, "configurationWritesPerformed" to false,
+            mapOf("readOnly" to !pairingWriteAttempted && !configurationWritesPerformed, "configurationWritesPerformed" to configurationWritesPerformed,
                 "firmwareFlashed" to false, "pairingWriteAttempted" to pairingWriteAttempted,
                 "pairingAcceptedByScooter" to pairingAccepted),
             events.toList(), outcome

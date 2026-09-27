@@ -18,6 +18,7 @@ data class AuthResult(
 )
 
 data class RegisterReply(val device: Int, val register: Int, val valueHex: String, val counter: Int)
+data class WriteReply(val device: Int, val register: Int, val accepted: Boolean, val counter: Int)
 
 data class HandshakeReply(val command: Int, val index: Int, val counter: Int)
 
@@ -106,6 +107,21 @@ object Encryption2Probe {
         require(device in 0..255 && register in 0..255 && length in 1..255)
         val plaintext = byteArrayOf(0x5A, 0xA5.toByte(), 0x01, 0x3E, device.toByte(), 0x01, register.toByte(), length.toByte())
         return encryptHandshake(plaintext, hexToBytes(passwordHex), authHex, counter)
+    }
+
+    fun buildWriteRegisterFrame(passwordHex: String, authHex: String, device: Int, register: Int, valueHex: String, counter: Int): ByteArray {
+        val value = hexToBytes(valueHex)
+        require(value.isNotEmpty() && value.size <= 255)
+        val plaintext = byteArrayOf(0x5A, 0xA5.toByte(), value.size.toByte(), 0x3E, device.toByte(), 0x02, register.toByte()) + value
+        return encryptHandshake(plaintext, hexToBytes(passwordHex), authHex, counter)
+    }
+
+    fun parseWriteRegisterFrame(frame: ByteArray, passwordHex: String, authHex: String): WriteReply? {
+        val decoded = decryptSession(frame, hexToBytes(passwordHex), authHex) ?: return null
+        val body = decoded.first
+        if (body.size < 4 || body[1].toInt() and 0xFF != 0x3E || body[2].toInt() and 0xFF != 0x05) return null
+        return WriteReply(body[0].toInt() and 0xFF, body[3].toInt() and 0xFF,
+            body.size == 4 || body[4].toInt() and 0xFF == 0, decoded.second)
     }
 
     fun parseReadRegisterFrame(frame: ByteArray, passwordHex: String, authHex: String): RegisterReply? {

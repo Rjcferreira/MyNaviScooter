@@ -104,7 +104,7 @@ data class CaptureReport(
               "services":$serviceJson,
               "protocolProbe":$probeJson,
               "initialState":{"complete":${initialState.size == Zt3BackupPlan.required.size && initialState.all { it.valueHex.length == it.expectedBytes * 2 }},"captured":${initialState.size},"required":${Zt3BackupPlan.required.size},"registers":$stateJson},
-              "safety":{"readOnly":${safety["readOnly"] == true},"configurationWritesPerformed":${safety["configurationWritesPerformed"] == true},"firmwareFlashed":${safety["firmwareFlashed"] == true},"pairingWriteAttempted":${safety["pairingWriteAttempted"] == true},"pairingAcceptedByScooter":${safety["pairingAcceptedByScooter"] == true},"note":"Pairing can change Bluetooth credentials. No scooter profile, speed or firmware commands are sent. Raw pairing traffic is excluded."}
+              "safety":{"readOnly":${safety["readOnly"] == true},"configurationWritesPerformed":${safety["configurationWritesPerformed"] == true},"firmwareFlashed":${safety["firmwareFlashed"] == true},"pairingWriteAttempted":${safety["pairingWriteAttempted"] == true},"pairingAcceptedByScooter":${safety["pairingAcceptedByScooter"] == true},"note":"Pairing may change Bluetooth credentials. Configuration writes, when requested, are limited to speed registers 0x47 and 0x48. Firmware commands are never sent."}
             }
         """.trimIndent()
     }

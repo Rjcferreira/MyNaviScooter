@@ -36,6 +36,8 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
         val view = dashboard.create(
             onScan = { if (permissionsReady()) { dashboard.recover.visibility = View.GONE; ble.startScan() } else requestPermissions() },
             onRecover = { selected?.let { connect(it, true) } },
+            onApply = { confirmOperation(RequestedOperation.APPLY_25_30) },
+            onRestore = { confirmOperation(RequestedOperation.RESTORE_INITIAL) },
             onExport = { exportReport() }, onSettings = { settings() }
         )
         val container = FrameLayout(this).apply { setBackgroundColor(0xFF04101B.toInt()); addView(view) }
@@ -48,7 +50,19 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
         ViewCompat.requestApplyInsets(container)
     }
 
-    private fun connect(item: ScannedScooter, repair: Boolean = false) {
+    private fun confirmOperation(operation: RequestedOperation) {
+        val item = selected ?: return
+        val restore = operation == RequestedOperation.RESTORE_INITIAL
+        AlertDialog.Builder(this)
+            .setTitle(if (restore) "Voltar ao estado inicial?" else "Aplicar Drive 25 / Sport 30?")
+            .setMessage(if (restore) "Serão restaurados apenas os dois registos de velocidade guardados no primeiro snapshot."
+                else "Serão alterados apenas os registos 0x47 e 0x48. Potência, corrente, tensão, firmware e Zero Start não serão tocados.")
+            .setNegativeButton("Cancelar", null)
+            .setPositiveButton(if (restore) "Restaurar" else "Aplicar") { _, _ -> connect(item, false, operation) }
+            .show()
+    }
+
+    private fun connect(item: ScannedScooter, repair: Boolean = false, operation: RequestedOperation = RequestedOperation.CAPTURE) {
         if (busy) return
         selected = item
         dashboard.select(item.name)
@@ -58,7 +72,7 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
         dashboard.export.isEnabled = false
         dashboard.export.alpha = .45f
         busy = true
-        ble.connect(item, repair)
+        ble.connect(item, repair, operation)
     }
 
     override fun onStage(stage: String) { runOnUiThread { dashboard.stage(stage) } }
@@ -82,7 +96,8 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
             val ok = report.protocolProbe?.authenticated == true
             dashboard.status.text = when {
                 report.outcome == "authenticated_storage_failed" -> "A scooter autenticou, mas a gravação local falhou. Credencial pendente preservada."
-                report.outcome == "initial_state_captured" -> "Estado inicial capturado sem alterações. Exporta o diagnóstico para validação antes de ativarmos qualquer controlo."
+                report.outcome == "initial_state_saved" -> "Estado inicial cifrado e verificado. Os controlos limitados estão disponíveis."
+                report.outcome == "profile_write_applied" -> "Operação aceite pela scooter. Volta a ligar para confirmar os valores por leitura."
                 ok -> "Autenticação confirmada. Credencial guardada. A sessão de diagnóstico terminou; os dados de condução ainda não estão disponíveis."
                 report.outcome == "timeout_auth" -> "Sem resposta à autenticação. A credencial pode estar desatualizada. Podes emparelhar novamente; as credenciais anteriores serão preservadas."
                 report.outcome == "pairing_rejected" -> "A scooter recusou o emparelhamento. Exporta o diagnóstico para análise."
@@ -92,6 +107,9 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
                 else -> "Ligação não concluída (${report.outcome}). Podes exportar o diagnóstico."
             }
             dashboard.recover.visibility = if (!ok && selected != null) View.VISIBLE else View.GONE
+            val baselineReady = report.outcome == "initial_state_saved" || report.outcome == "profile_write_applied"
+            dashboard.applyProfile.visibility = if (baselineReady) View.VISIBLE else View.GONE
+            dashboard.restoreProfile.visibility = if (baselineReady) View.VISIBLE else View.GONE
             dashboard.export.isEnabled = true; dashboard.export.alpha = 1f
         }
     }

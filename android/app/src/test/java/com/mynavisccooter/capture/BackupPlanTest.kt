@@ -13,5 +13,10 @@ class BackupPlanTest {
             "000102030405060708090A0B0C0D0E0F", 0x16, 0x42, 2, 4)
         assertEquals(4, frame.last().toInt() and 0xFF)
         assertEquals(14, frame.size)
+        val write = Encryption2Probe.buildWriteRegisterFrame(
+            "101112131415161718191A1B1C1D1E1F",
+            "000102030405060708090A0B0C0D0E0F", 0x16, 0x47, "0F19", 5)
+        assertEquals(15, write.size)
+        assertEquals(5, write.last().toInt() and 0xFF)
     }
 }

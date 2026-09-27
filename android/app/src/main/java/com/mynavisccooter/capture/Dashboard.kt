@@ -20,6 +20,8 @@ class Dashboard(private val context: Context) {
     lateinit var recover: Button
     lateinit var scan: Button
     lateinit var badge: TextView
+    lateinit var applyProfile: Button
+    lateinit var restoreProfile: Button
     private lateinit var steps: TextView
     private lateinit var selected: TextView
     fun dp(n: Int) = (n * context.resources.displayMetrics.density).toInt()
@@ -42,7 +44,7 @@ class Dashboard(private val context: Context) {
         layoutParams = LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6); bottomMargin = dp(8) }
         setOnClickListener { action() }
     }
-    fun create(onScan: () -> Unit, onRecover: () -> Unit, onExport: () -> Unit, onSettings: () -> Unit): View {
+    fun create(onScan: () -> Unit, onRecover: () -> Unit, onApply: () -> Unit, onRestore: () -> Unit, onExport: () -> Unit, onSettings: () -> Unit): View {
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL; setPadding(dp(22), dp(20), dp(22), dp(24)); setBackgroundColor(ink)
         }
@@ -86,8 +88,11 @@ class Dashboard(private val context: Context) {
         profile.addView(label("PERFIS DE CONDUÇÃO", 11f, muted).apply { letterSpacing = .13f })
         profile.addView(label("Original", 22f).apply { setTypeface(null, Typeface.BOLD) })
         profile.addView(label("Eco  ·  Drive  ·  Sport", 16f, orange))
-        profile.addView(label("Leitura e restauro por implementar. Ainda não existe um backup restaurável.", 13f, muted))
-        profile.addView(label("Personalizado  ·  Indisponível", 15f, muted))
+        profile.addView(label("O estado inicial é guardado antes de qualquer alteração feita pela app.", 13f, muted))
+        profile.addView(label("Teste limitado: apenas registos de velocidade 0x47/0x48", 15f, muted))
+        applyProfile = button("Aplicar Drive 25 / Sport 30", true, onApply).apply { visibility = View.GONE }
+        restoreProfile = button("Voltar ao estado inicial", false, onRestore).apply { visibility = View.GONE }
+        profile.addView(applyProfile); profile.addView(restoreProfile)
         root.addView(profile)
         export = button("Exportar diagnóstico", false, onExport).apply { isEnabled = false; alpha = .45f }
         root.addView(export)
