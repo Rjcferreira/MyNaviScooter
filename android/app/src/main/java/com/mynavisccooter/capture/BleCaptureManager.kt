@@ -422,7 +422,9 @@ class BleCaptureManager(private val context: Context, private val listener: List
         val reg48 = baseline.register(0x16, 0x48) ?: run { finish("baseline_speed_missing"); return }
         writeQueue = if (requestedOperation == RequestedOperation.RESTORE_INITIAL) mutableListOf(reg47, reg48) else mutableListOf(
             reg47.copy(valueHex = reg47.valueHex.take(2) + "19"),
-            reg48.copy(valueHex = "1E1E")
+            // X3 register 0x48 is [base/default, Sport], not two Sport slots.
+            // Preserve the scooter's original first byte and change only Sport.
+            reg48.copy(valueHex = reg48.valueHex.take(2) + "1E")
         )
         writeIndex = 0; arm("write", 10000L)
         listener.onStatus(if (requestedOperation == RequestedOperation.RESTORE_INITIAL) "A restaurar os limites guardados…" else "A aplicar apenas Drive 25 e Sport 30…")
