@@ -420,11 +420,16 @@ class BleCaptureManager(private val context: Context, private val listener: List
         }
         val reg47 = baseline.register(0x16, 0x47) ?: run { finish("baseline_speed_missing"); return }
         val reg48 = baseline.register(0x16, 0x48) ?: run { finish("baseline_speed_missing"); return }
+        if (requestedOperation == RequestedOperation.RESTORE_INITIAL && reg48.valueHex.startsWith("1E", true)) {
+            event("baseline_restore_blocked reason=known_review_47_48_speed_artifact reg47=${reg47.valueHex} reg48=${reg48.valueHex}")
+            finish("baseline_speed_tainted")
+            return
+        }
         writeQueue = if (requestedOperation == RequestedOperation.RESTORE_INITIAL) mutableListOf(reg47, reg48) else mutableListOf(
             reg47.copy(valueHex = reg47.valueHex.take(2) + "19"),
-            // X3 register 0x48 is [base/default, Sport], not two Sport slots.
-            // Preserve the scooter's original first byte and change only Sport.
-            reg48.copy(valueHex = reg48.valueHex.take(2) + "1E")
+            // Verified X3 wire format is [0x14, Sport]. Do not derive byte 0
+            // from a baseline that may contain the review.47/.48 test artifact.
+            reg48.copy(valueHex = "141E")
         )
         writeIndex = 0; arm("write", 10000L)
         listener.onStatus(if (requestedOperation == RequestedOperation.RESTORE_INITIAL) "A restaurar os limites guardados…" else "A aplicar apenas Drive 25 e Sport 30…")
