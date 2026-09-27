@@ -99,6 +99,7 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
                 report.outcome == "initial_state_saved" -> "Estado inicial cifrado e verificado. Os controlos limitados estão disponíveis."
                 report.outcome == "profile_write_verified" -> "Os dois limites foram escritos e confirmados por releitura."
                 report.outcome == "profile_write_not_persisted" -> "A scooter confirmou a escrita, mas devolveu outro valor na releitura. Nenhuma outra configuração foi tocada."
+                report.outcome == "region_change_required" -> "A região alemã rejeitou Sport 30. A escrita direta foi bloqueada; restaura primeiro os limites iniciais."
                 ok -> "Autenticação confirmada. Credencial guardada. A sessão de diagnóstico terminou; os dados de condução ainda não estão disponíveis."
                 report.outcome == "timeout_auth" -> "Sem resposta à autenticação. A credencial pode estar desatualizada. Podes emparelhar novamente; as credenciais anteriores serão preservadas."
                 report.outcome == "pairing_rejected" -> "A scooter recusou o emparelhamento. Exporta o diagnóstico para análise."
@@ -108,7 +109,7 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
                 else -> "Ligação não concluída (${report.outcome}). Podes exportar o diagnóstico."
             }
             dashboard.recover.visibility = if (!ok && selected != null) View.VISIBLE else View.GONE
-            val baselineReady = report.outcome in setOf("initial_state_saved", "profile_write_verified", "profile_write_not_persisted")
+            val baselineReady = report.outcome in setOf("initial_state_saved", "profile_write_verified", "profile_write_not_persisted", "region_change_required")
             dashboard.applyProfile.visibility = if (baselineReady) View.VISIBLE else View.GONE
             dashboard.restoreProfile.visibility = if (baselineReady) View.VISIBLE else View.GONE
             dashboard.export.isEnabled = true; dashboard.export.alpha = 1f

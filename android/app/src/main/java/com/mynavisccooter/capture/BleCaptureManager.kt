@@ -420,12 +420,21 @@ class BleCaptureManager(private val context: Context, private val listener: List
         }
         val reg47 = baseline.register(0x16, 0x47) ?: run { finish("baseline_speed_missing"); return }
         val reg48 = baseline.register(0x16, 0x48) ?: run { finish("baseline_speed_missing"); return }
-        if (requestedOperation == RequestedOperation.RESTORE_INITIAL && reg48.valueHex.startsWith("1E", true)) {
-            event("baseline_restore_blocked reason=known_review_47_48_speed_artifact reg47=${reg47.valueHex} reg48=${reg48.valueHex}")
-            finish("baseline_speed_tainted")
+        val germanZt3 = serial.startsWith("1K1D", ignoreCase = true)
+        val taintedByReviewTest = germanZt3 && (
+            reg47.valueHex.equals("0F19", true) ||
+            reg48.valueHex.equals("1E14", true) || reg48.valueHex.equals("1E1E", true) ||
+            reg48.valueHex.equals("1414", true)
+        )
+        if (requestedOperation == RequestedOperation.APPLY_25_30 && germanZt3) {
+            event("profile_write_blocked reason=german_region_rejected_sport_30")
+            finish("region_change_required")
             return
         }
-        writeQueue = if (requestedOperation == RequestedOperation.RESTORE_INITIAL) mutableListOf(reg47, reg48) else mutableListOf(
+        writeQueue = if (requestedOperation == RequestedOperation.RESTORE_INITIAL && taintedByReviewTest) {
+            event("baseline_recovery source=verified_pre_write_report reg47=0F14 reg48=1416")
+            mutableListOf(reg47.copy(valueHex = "0F14"), reg48.copy(valueHex = "1416"))
+        } else if (requestedOperation == RequestedOperation.RESTORE_INITIAL) mutableListOf(reg47, reg48) else mutableListOf(
             reg47.copy(valueHex = reg47.valueHex.take(2) + "19"),
             // Verified X3 wire format is [0x14, Sport]. Do not derive byte 0
             // from a baseline that may contain the review.47/.48 test artifact.
