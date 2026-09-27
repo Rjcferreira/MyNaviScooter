@@ -77,6 +77,7 @@ class BleCaptureManager(private val context: Context, private val listener: List
     private var writeQueue = mutableListOf<RegisterCapture>()
     private var writeIndex = 0
     private var configurationWritesPerformed = false
+    private var verifyWriteIndex = 0
 
     private fun event(message: String) {
         if (events.size < 200) events += "${SystemClock.elapsedRealtime() - started}ms $message"
@@ -148,6 +149,7 @@ class BleCaptureManager(private val context: Context, private val listener: List
         authAttempts = 0; authRetry = null; mtu = 23
         configurationWritesPerformed = false
         backupIndex = 0; readCounter = 4
+        verifyWriteIndex = 0; writeQueue.clear(); writeIndex = 0
         pendingStore = EncryptedCredentialStore(context, "pending_" + item.device.address.replace(":", ""))
         authNote = "Autenticação de leitura não iniciada."
         attempted = false; reported = false
@@ -381,7 +383,24 @@ class BleCaptureManager(private val context: Context, private val listener: List
                 }
                 event("profile_write_ack name=${expected.name} counter=${reply.counter}")
                 writeIndex += 1; readCounter = NinebotCounter.nextTxAfterReply(reply.counter)
-                if (writeIndex == writeQueue.size) finish("profile_write_applied") else sendNextWrite(g)
+                if (writeIndex == writeQueue.size) {
+                    verifyWriteIndex = 0
+                    arm("verify_write", 8000L)
+                    listener.onStatus("Escrita aceite. A reler os dois limites para confirmar…")
+                    main.postDelayed({ if (gatt === g && !reported && phase == "verify_write") sendNextWriteVerification(g) }, 300L)
+                } else sendNextWrite(g)
+                return
+            }
+            if (phase == "verify_write") {
+                val credential = sessionCredential ?: continue
+                val reply = Encryption2Probe.parseReadRegisterFrame(frame, credential.passwordHex, result?.authParameterHex ?: "") ?: continue
+                val expected = writeQueue.getOrNull(verifyWriteIndex) ?: continue
+                if (reply.device != expected.device || reply.register != expected.register) continue
+                val matches = reply.valueHex.equals(expected.valueHex, true)
+                event("profile_verify name=${expected.name} expected=${expected.valueHex} actual=${reply.valueHex} matches=$matches counter=${reply.counter}")
+                if (!matches) { finish("profile_write_not_persisted"); return }
+                verifyWriteIndex += 1; readCounter = NinebotCounter.nextTxAfterReply(reply.counter)
+                if (verifyWriteIndex == writeQueue.size) finish("profile_write_verified") else sendNextWriteVerification(g)
                 return
             }
         }
@@ -422,6 +441,20 @@ class BleCaptureManager(private val context: Context, private val listener: List
         }
         event("profile_write name=${item.name} value=${item.valueHex} counter=$readCounter accepted=$accepted")
         if (!accepted) finish("profile_write_stack_rejected") else configurationWritesPerformed = true
+    }
+
+    private fun sendNextWriteVerification(g: BluetoothGatt) {
+        val item = writeQueue.getOrNull(verifyWriteIndex) ?: return
+        val credential = sessionCredential ?: return
+        val tx = g.getService(serviceId)?.getCharacteristic(txId) ?: run { finish("verify_channel_missing"); return }
+        val frame = Encryption2Probe.buildReadRegisterFrame(credential.passwordHex, result!!.authParameterHex,
+            item.device, item.register, item.expectedBytes, readCounter)
+        val accepted = if (Build.VERSION.SDK_INT >= 33) g.writeCharacteristic(tx, frame,
+            BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE) == BluetoothStatusCodes.SUCCESS else {
+            tx.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE; tx.value = frame; g.writeCharacteristic(tx)
+        }
+        event("profile_verify_read name=${item.name} counter=$readCounter accepted=$accepted")
+        if (!accepted) finish("verify_read_rejected")
     }
 
     private fun beginInitialStateRead(g: BluetoothGatt) {
