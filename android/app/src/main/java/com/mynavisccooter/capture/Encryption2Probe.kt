@@ -99,8 +99,21 @@ object Encryption2Probe {
         return AuthResult(parsed.index == 1, bytesToHex(frame) ?: "")
     }
 
-    fun parsePairingFrame(frame: ByteArray, deviceName: String, authHex: String): HandshakeReply? =
-        parseHandshake(frame, deviceName.toByteArray(Charsets.US_ASCII), authHex, 0x5C)
+    fun parsePairingFrame(
+        frame: ByteArray,
+        deviceName: String,
+        authHex: String,
+        proposedPasswordHex: String? = null
+    ): HandshakeReply? {
+        // Most NinebotCrypto firmwares encrypt the 0x5C acknowledgement with
+        // SHA-1(name + BLE random). ZT3 variants may switch to the proposed
+        // SHA-1(app random + BLE random) key before emitting the ACK. Accept
+        // either only when the CCM tag and complete frame validate.
+        return parseHandshake(frame, deviceName.toByteArray(Charsets.US_ASCII), authHex, 0x5C)
+            ?: proposedPasswordHex?.let {
+                runCatching { parseHandshake(frame, hexToBytes(it), authHex, 0x5C) }.getOrNull()
+            }
+    }
 
     private fun parseHandshake(frame: ByteArray, keyMaterial: ByteArray, authHex: String, command: Int): HandshakeReply? {
         if (frame.size < 13 || frame[0] != 0x5A.toByte() || frame[1] != 0xA5.toByte()) return null

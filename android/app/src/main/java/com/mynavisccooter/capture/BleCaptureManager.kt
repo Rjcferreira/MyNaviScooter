@@ -273,8 +273,21 @@ class BleCaptureManager(private val context: Context, private val listener: List
                 return
             }
             if (phase == "pairing" || phase == "button") {
-                val reply = Encryption2Probe.parsePairingFrame(frame, selected!!.name, result!!.authParameterHex)
-                if (reply == null) { event("pairing_frame_invalid"); continue }
+                val reply = Encryption2Probe.parsePairingFrame(
+                    frame, selected!!.name, result!!.authParameterHex, sessionCredential?.passwordHex
+                )
+                if (reply == null) {
+                    val wireCounter = if (frame.size >= 2) {
+                        ((frame[frame.lastIndex - 1].toInt() and 0xFF) shl 8) or
+                            (frame.last().toInt() and 0xFF)
+                    } else -1
+                    // A zero-payload 13-byte reply contains no credential or
+                    // user data. Preserve it for protocol diagnosis if an
+                    // unknown firmware variant still fails both validated keys.
+                    val safeFrame = if (frame.size == 13) bytesToHex(frame) else "redacted"
+                    event("pairing_frame_invalid bytes=${frame.size} counter=$wireCounter frame=$safeFrame")
+                    continue
+                }
                 event("pairing_reply index=${reply.index} counter=${reply.counter}")
                 // NinebotCrypto uses one counter stream for both directions.
                 // Decrypting RX sets the internal counter to RX+1; the next TX

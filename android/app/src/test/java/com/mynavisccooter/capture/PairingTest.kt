@@ -50,6 +50,7 @@ class PairingTest {
             assertNull(Encryption2Probe.parsePairingFrame(bad, name, auth))
         }
         assertNull(Encryption2Probe.parsePairingFrame(accepted, "OTHER000000001", auth))
+        assertNotNull(Encryption2Probe.parsePairingFrame(accepted, name, auth, password))
         assertNull(Encryption2Probe.parseAuthFrame(accepted, password, auth))
         assertNull(Encryption2Probe.parsePairingFrame(Encryption2Probe.buildPairingFrame(name, password, auth), name, auth))
         assertNull(Encryption2Probe.parsePairingFrame(accepted.dropLast(1).toByteArray(), name, auth))
