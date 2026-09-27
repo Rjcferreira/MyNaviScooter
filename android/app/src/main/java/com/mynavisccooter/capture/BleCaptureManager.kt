@@ -300,6 +300,11 @@ class BleCaptureManager(private val context: Context, private val listener: List
                 // frame increments it to TX=7. Do not skip to RX+2.
                 pairingCounter = reply.counter + 1
                 when (pairing.accept(reply)) {
+                    PairingProgress.Action.WAIT_FOR_BUTTON -> {
+                        event("pairing_random_received_waiting_for_button")
+                        authNote = "Chave temporária recebida; aguarda confirmação física no botão da scooter."
+                        listener.onStatus("A scooter recebeu a chave. Prime uma vez o botão de ligar/desligar; a app continuará a tentar até receber a confirmação física.")
+                    }
                     PairingProgress.Action.AUTHENTICATE -> {
                         pairingRetry?.let(main::removeCallbacks)
                         pairingRetry = null

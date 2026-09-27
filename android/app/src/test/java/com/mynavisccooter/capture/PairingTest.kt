@@ -42,7 +42,7 @@ class PairingTest {
     @Test fun zeroPayloadRepliesAreValidAndOnlyPeerReplyAuthorizes() {
         val progress = PairingProgress()
         val wait = Encryption2Probe.parsePairingFrame(waiting, name, auth)!!
-        assertEquals(PairingProgress.Action.AUTHENTICATE, progress.accept(wait))
+        assertEquals(PairingProgress.Action.WAIT_FOR_BUTTON, progress.accept(wait))
         assertEquals(PairingProgress.Action.IGNORE, progress.accept(wait))
         val acceptedProgress = PairingProgress()
         val accept = Encryption2Probe.parsePairingFrame(accepted, name, auth)!!
@@ -66,11 +66,12 @@ class PairingTest {
 
     @Test fun rejectsUnknownStatusAndIgnoresOutOfOrderReplies() {
         val progress = PairingProgress()
-        assertEquals(PairingProgress.Action.AUTHENTICATE, progress.accept(HandshakeReply(0x5C, 0, 4)))
+        assertEquals(PairingProgress.Action.WAIT_FOR_BUTTON, progress.accept(HandshakeReply(0x5C, 0, 4)))
         assertEquals(PairingProgress.Action.IGNORE, progress.accept(HandshakeReply(0x5C, 1, 3)))
+        assertEquals(PairingProgress.Action.AUTHENTICATE, progress.accept(HandshakeReply(0x5C, 1, 6)))
         val rejected = PairingProgress()
         assertEquals(PairingProgress.Action.REJECT, rejected.accept(HandshakeReply(0x5C, 2, 5)))
-        assertEquals(PairingProgress.Action.IGNORE, progress.accept(HandshakeReply(0x5C, 1, 6)))
+        assertEquals(PairingProgress.Action.IGNORE, progress.accept(HandshakeReply(0x5C, 1, 7)))
     }
 
     @Test fun fragmentedPairingRepliesAreReassembled() {

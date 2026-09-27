@@ -30,6 +30,10 @@ iterator (`TX=5 -> RX=6 -> TX=7`). Reconnection with a
 stored random starts 0x5D at counter 2. Responses may have zero payload bytes;
 their status is in the index field.
 
+For fresh pairing, `0x5C/00` only acknowledges receipt of the proposed random;
+the app keeps sending the same random and waits for `0x5C/01`, which confirms
+the scooter's physical power-button authorization. Only then is `0x5D` sent.
+
 On verified AUTH success, the candidate is promoted to the credential store.
 An interrupted attempt retains the encrypted candidate for reconnection; it
 does not overwrite the prior credential. Authentication rejection does not
