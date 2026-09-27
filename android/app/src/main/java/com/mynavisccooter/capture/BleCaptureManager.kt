@@ -429,11 +429,10 @@ class BleCaptureManager(private val context: Context, private val listener: List
         event("auth accepted=$accepted attempt=$authAttempts counter=$authCounter; enqueue is not peer acknowledgement")
         if (!accepted) { finish("auth_rejected_by_stack"); return }
         authCounter += 1
-        // A fresh ZT3 pair may restart BLE without replying to 0x5D. Do not
-        // duplicate that first finalization frame. Retries are safe on the
-        // subsequent verification connection (or a normal stored-key login).
-        val mayRetry = !pairingWriteAttempted || pairingReconnects > 0
-        if (authAttempts < 4 && mayRetry) {
+        // This ZT3 firmware completes fresh pairing only after a repeated
+        // 0x5D, then restarts BLE with status 19. Keep the retry bounded; the
+        // transport restart is handled once by restartAfterPairing().
+        if (authAttempts < 4) {
             authRetry = Runnable {
                 if (gatt === g && !reported && phase == "auth") sendAuth(g, pre)
             }.also { main.postDelayed(it, 1000L) }
