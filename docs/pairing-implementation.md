@@ -25,7 +25,8 @@ or the newly proposed key; both are attempted, but advancement still requires a
 valid CCM tag and complete frame. A phone tap cannot authorize the session.
 
 The first encrypted TX counter is 2. Counters are shared by TX and RX; after a
-reply at counter N, the next transmitted 0x5D uses N+2. Reconnection with a
+reply at counter N, the next transmitted 0x5D uses N+1, matching NinebotCrypto's
+iterator (`TX=5 -> RX=6 -> TX=7`). Reconnection with a
 stored random starts 0x5D at counter 2. Responses may have zero payload bytes;
 their status is in the index field.
 

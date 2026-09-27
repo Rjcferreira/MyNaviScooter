@@ -295,16 +295,16 @@ class BleCaptureManager(private val context: Context, private val listener: List
                     continue
                 }
                 event("pairing_reply index=${reply.index} counter=${reply.counter}")
-                // NinebotCrypto uses one counter stream for both directions.
-                // Decrypting RX sets the internal counter to RX+1; the next TX
-                // increments once more, so its wire counter must be RX+2.
-                pairingCounter = reply.counter + 2
+                // NinebotCrypto uses one shared counter stream. After TX=5 and
+                // RX=6 the internal iterator becomes 6; encrypting the next
+                // frame increments it to TX=7. Do not skip to RX+2.
+                pairingCounter = reply.counter + 1
                 when (pairing.accept(reply)) {
                     PairingProgress.Action.AUTHENTICATE -> {
                         pairingRetry?.let(main::removeCallbacks)
                         pairingRetry = null
                         event("pairing_random_acknowledged")
-                        authCounter = reply.counter + 2
+                        authCounter = NinebotCounter.nextTxAfterReply(reply.counter)
                         listener.onStatus("Chave aceite. A concluir a autorização física da scooter…")
                         sendAuth(g, result!!)
                     }

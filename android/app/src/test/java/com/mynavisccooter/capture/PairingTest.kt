@@ -32,6 +32,13 @@ class PairingTest {
         assertEquals(5, auth5.last().toInt() and 0xFF)
     }
 
+    @Test fun scooterReplyAdvancesToExactlyTheNextWireCounter() {
+        // Captured ZT3 sequence: pair TX=5, pair ACK RX=6, AUTH must be TX=7.
+        assertEquals(7, NinebotCounter.nextTxAfterReply(6))
+        val auth7 = Encryption2Probe.buildAuthFrame(name, password, auth, name, 7)
+        assertEquals(7, auth7.last().toInt() and 0xFF)
+    }
+
     @Test fun zeroPayloadRepliesAreValidAndOnlyPeerReplyAuthorizes() {
         val progress = PairingProgress()
         val wait = Encryption2Probe.parsePairingFrame(waiting, name, auth)!!
