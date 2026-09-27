@@ -35,6 +35,12 @@ does not overwrite the prior credential. Authentication rejection does not
 automatically trigger another credential write. A minimum MTU of 32 is required
 for the 29-byte SET_PWD; smaller negotiated MTUs stop before pairing transmission.
 
+Some ZT3 firmware closes the BLE transport with Android status 19 immediately
+after the first fresh 0x5D. The app treats this once as a pairing-session restart,
+waits briefly, reconnects, repeats PRE_COMM, and verifies the pending app random
+with 0x5D. It does not send duplicate 0x5D frames before that restart. A second
+transport error is reported normally rather than entering a reconnect loop.
+
 Synthetic vectors from the independent Python implementation cover request
 bytes, zero-payload replies, MAC corruption, wrong keys, reflected requests,
 fragmentation, duplicates and rejection states. No scooter secrets are fixtures.

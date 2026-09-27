@@ -67,6 +67,7 @@ class BleCaptureManager(private val context: Context, private val listener: List
     private var authRetry: Runnable? = null
     private var mtu = 23
     private var forcePairing = false
+    private var pairingReconnects = 0
 
     private fun event(message: String) {
         if (events.size < 200) events += "${SystemClock.elapsedRealtime() - started}ms $message"
@@ -138,6 +139,7 @@ class BleCaptureManager(private val context: Context, private val listener: List
         pendingStore = EncryptedCredentialStore(context, "pending_" + item.device.address.replace(":", ""))
         authNote = "Autenticação de leitura não iniciada."
         attempted = false; reported = false
+        pairingReconnects = 0
         started = SystemClock.elapsedRealtime()
         event("build=${BuildConfig.VERSION_NAME} revision=${BuildConfig.REVISION}")
         listener.onStatus("A ligar a ${item.name}…")
@@ -163,7 +165,11 @@ class BleCaptureManager(private val context: Context, private val listener: List
     private val callback = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) = active(g) {
             event("connection status=$status state=$newState")
-            if (status != BluetoothGatt.GATT_SUCCESS) finish("connection_error_$status")
+            if (status == 19 && newState == BluetoothProfile.STATE_DISCONNECTED &&
+                phase == "auth" && pairingWriteAttempted && pairingReconnects == 0) {
+                restartAfterPairing(g)
+            }
+            else if (status != BluetoothGatt.GATT_SUCCESS) finish("connection_error_$status")
             else if (newState == BluetoothProfile.STATE_DISCONNECTED) finish("disconnected_$phase")
             else if (newState == BluetoothProfile.STATE_CONNECTED && phase == "connect") {
                 arm("services")
@@ -423,11 +429,49 @@ class BleCaptureManager(private val context: Context, private val listener: List
         event("auth accepted=$accepted attempt=$authAttempts counter=$authCounter; enqueue is not peer acknowledgement")
         if (!accepted) { finish("auth_rejected_by_stack"); return }
         authCounter += 1
-        if (authAttempts < 4) {
+        // A fresh ZT3 pair may restart BLE without replying to 0x5D. Do not
+        // duplicate that first finalization frame. Retries are safe on the
+        // subsequent verification connection (or a normal stored-key login).
+        val mayRetry = !pairingWriteAttempted || pairingReconnects > 0
+        if (authAttempts < 4 && mayRetry) {
             authRetry = Runnable {
                 if (gatt === g && !reported && phase == "auth") sendAuth(g, pre)
             }.also { main.postDelayed(it, 1000L) }
         }
+    }
+
+    private fun restartAfterPairing(old: BluetoothGatt) {
+        pairingReconnects += 1
+        event("pairing_transport_restart status=19; reconnect=$pairingReconnects")
+        timeout?.let(main::removeCallbacks)
+        pairingRetry?.let(main::removeCallbacks)
+        authRetry?.let(main::removeCallbacks)
+        timeout = null; pairingRetry = null; authRetry = null
+        gatt = null
+        runCatching { old.close() }
+
+        // A ZT3 may restart its BLE session after accepting the app random.
+        // Keep the encrypted pending credential, but reset all per-connection
+        // crypto/GATT state and verify it through a fresh PRE_COMM -> AUTH.
+        frames.clear(); subscribed.clear(); notifications.clear()
+        services = emptyList(); result = null; requestHex = null
+        attempted = false; authAttempted = false; authenticated = false
+        authCounter = 2; authAttempts = 0; pairingCounter = 2; pairingAttempts = 0; mtu = 23
+        pairing = PairingProgress()
+        authNote = "A scooter reiniciou a sessão Bluetooth após o emparelhamento; a verificar a nova credencial."
+        listener.onStatus("A scooter reiniciou o Bluetooth. A reconectar e verificar o emparelhamento…")
+        val item = selected ?: run { finish("pairing_restart_missing_device"); return }
+        arm("connect", 15000L)
+        main.postDelayed({
+            if (!reported && phase == "connect" && pairingReconnects == 1) {
+                runCatching {
+                    gatt = item.device.connectGatt(context, false, callback, BluetoothDevice.TRANSPORT_LE)
+                }.onFailure {
+                    event("pairing_reconnect_exception=${it.javaClass.simpleName}")
+                    finish("pairing_reconnect_failed")
+                }
+            }
+        }, 1200L)
     }
     private fun finish(outcome: String) {
         if (reported) return
