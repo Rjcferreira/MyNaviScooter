@@ -605,7 +605,7 @@ class BleCaptureManager(private val context: Context, private val listener: List
                 authAttempted, authenticated, authNote,
                 "PRE_COMM and AUTH diagnostics. SET_PWD only after owner selects pairing. Raw pairing traffic is omitted."),
             initialState.toList(),
-            mapOf("readOnly" to !pairingWriteAttempted && !configurationWritesPerformed, "configurationWritesPerformed" to configurationWritesPerformed,
+            mapOf("readOnly" to (!pairingWriteAttempted && !configurationWritesPerformed), "configurationWritesPerformed" to configurationWritesPerformed,
                 "firmwareFlashed" to false, "pairingWriteAttempted" to pairingWriteAttempted,
                 "pairingAcceptedByScooter" to pairingAccepted),
             events.toList(), outcome
