@@ -189,7 +189,7 @@ class Dashboard(private val context: Context) {
             identity.contains("gt3") -> R.drawable.scooter_gt3
             identity.contains("f3") -> R.drawable.scooter_f3
             identity.contains("g3") -> R.drawable.scooter_g3
-            else -> R.drawable.scooter_zt3
+            else -> R.drawable.scooter_unknown
         }
     }
     fun stage(stage: String) {
