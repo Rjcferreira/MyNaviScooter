@@ -26,6 +26,7 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
     private var latestReport: CaptureReport? = null
     private var selected: ScannedScooter? = null
     private var busy = false
+    private lateinit var container: FrameLayout
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -33,6 +34,18 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
         credentials = EncryptedCredentialStore(this)
         ble = BleCaptureManager(this, this)
         dashboard = Dashboard(this)
+        container = FrameLayout(this).apply { setBackgroundColor(0xFF04101B.toInt()) }
+        setContentView(container)
+        ViewCompat.setOnApplyWindowInsetsListener(container) { v, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
+            v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+            insets
+        }
+        ViewCompat.requestApplyInsets(container)
+        LaunchExperience(this).show(container) { showMainExperience() }
+    }
+
+    private fun showMainExperience() {
         val view = dashboard.create(
             onScan = { if (permissionsReady()) { dashboard.recover.visibility = View.GONE; ble.startScan() } else requestPermissions() },
             onRecover = { selected?.let { connect(it, true) } },
@@ -41,14 +54,7 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
             onRestore = { confirmOperation(RequestedOperation.RESTORE_INITIAL) },
             onExport = { exportReport() }, onSettings = { settings() }
         )
-        val container = FrameLayout(this).apply { setBackgroundColor(0xFF04101B.toInt()); addView(view) }
-        setContentView(container)
-        ViewCompat.setOnApplyWindowInsetsListener(container) { v, insets ->
-            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
-            v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
-            insets
-        }
-        ViewCompat.requestApplyInsets(container)
+        container.removeAllViews(); container.addView(view)
     }
 
     private fun confirmDeepScan() {

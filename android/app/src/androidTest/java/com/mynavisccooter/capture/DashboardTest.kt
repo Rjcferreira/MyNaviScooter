@@ -29,6 +29,18 @@ class DashboardTest {
         )).use { it.readBytes() }
     }
     @Test fun homeAndSettingsWorkWithoutBluetoothHardware() {
+        Thread.sleep(2700)
+        val needsConsent = runCatching {
+            onView(withText("Continuar")).check(matches(isDisplayed())); true
+        }.getOrDefault(false)
+        if (needsConsent) {
+            screenshot("onboarding-terms")
+            onView(withText("Continuar")).perform(click())
+            onView(withText("Alterações podem afetar a homologação")).check(matches(isDisplayed()))
+            screenshot("onboarding-liability")
+            onView(withText("Li, compreendi e aceito continuar.")).perform(click())
+            onView(withText("Aceitar e entrar")).perform(click())
+        }
         onView(withText("Boa viagem!")).check(matches(isDisplayed()))
         screenshot("dashboard-home")
         onView(isAssignableFrom(android.widget.ScrollView::class.java)).perform(swipeUp(), swipeUp())
