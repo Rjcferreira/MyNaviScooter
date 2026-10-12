@@ -442,6 +442,13 @@ class BleCaptureManager(private val context: Context, private val listener: List
             beginDeepScan(g)
             return
         }
+        val capability = X3CapabilityPolicy.profileWrites(selected?.model ?: ModelProfiles.UNKNOWN, initialState)
+        if (!capability.allowed) {
+            event("configuration_write_blocked policy=${capability.title}")
+            authNote = capability.detail
+            finish("configuration_write_blocked")
+            return
+        }
         val reg47 = baseline.register(0x16, 0x47) ?: run { finish("baseline_speed_missing"); return }
         val reg48 = baseline.register(0x16, 0x48) ?: run { finish("baseline_speed_missing"); return }
         val germanZt3 = serial.startsWith("1K1D", ignoreCase = true)

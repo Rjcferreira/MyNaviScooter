@@ -75,6 +75,16 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
 
     private fun confirmOperation(operation: RequestedOperation) {
         val item = selected ?: return
+        val rows = latestReport?.let { it.initialState + it.deepScan?.results.orEmpty() }.orEmpty()
+        val capability = X3CapabilityPolicy.profileWrites(item.model, rows)
+        if (!capability.allowed) {
+            AlertDialog.Builder(this)
+                .setTitle(capability.title)
+                .setMessage(capability.detail)
+                .setPositiveButton("Entendi", null)
+                .show()
+            return
+        }
         val restore = operation == RequestedOperation.RESTORE_INITIAL
         AlertDialog.Builder(this)
             .setTitle(if (restore) "Voltar ao estado inicial?" else "Aplicar Drive 25 / Sport 30?")
@@ -149,6 +159,7 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
                 report.outcome == "profile_write_verified" -> "Os dois limites foram escritos e confirmados por releitura."
                 report.outcome == "profile_write_not_persisted" -> "A scooter confirmou a escrita, mas devolveu outro valor na releitura. Nenhuma outra configuração foi tocada."
                 report.outcome == "region_change_required" -> "A região alemã rejeitou Sport 30. A escrita direta foi bloqueada; restaura primeiro os limites iniciais."
+                report.outcome == "configuration_write_blocked" -> "Alteração bloqueada pela matriz de segurança deste modelo e firmware. Nenhum parâmetro foi escrito."
                 ok -> "Autenticação confirmada. Credencial guardada. A sessão de diagnóstico terminou; os dados de condução ainda não estão disponíveis."
                 report.outcome == "timeout_auth" -> "Sem resposta à autenticação. A credencial pode estar desatualizada. Podes emparelhar novamente; as credenciais anteriores serão preservadas."
                 report.outcome == "pairing_rejected" -> "A scooter recusou o emparelhamento. Exporta o diagnóstico para análise."
@@ -159,9 +170,9 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
             }
             dashboard.recover.visibility = if (!ok && selected != null) View.VISIBLE else View.GONE
             if (!ok) return@runOnUiThread
-            val baselineReady = report.outcome in setOf("initial_state_saved", "profile_write_verified", "profile_write_not_persisted", "region_change_required")
-            dashboard.applyProfile.visibility = if (baselineReady) View.VISIBLE else View.GONE
-            dashboard.restoreProfile.visibility = if (baselineReady) View.VISIBLE else View.GONE
+            val baselineReady = report.initialState.isNotEmpty() || report.outcome in setOf("initial_state_saved", "profile_write_verified", "profile_write_not_persisted", "region_change_required")
+            val capability = X3CapabilityPolicy.profileWrites(report.model, report.initialState + report.deepScan?.results.orEmpty())
+            dashboard.showMutationCapability(capability, baselineReady)
             dashboard.deepScan.visibility = if (ok) View.VISIBLE else View.GONE
             report.deepScan?.let { dashboard.showTelemetry(Zt3TelemetryDecoder.decode(it.results)) }
             dashboard.export.isEnabled = true; dashboard.export.alpha = 1f

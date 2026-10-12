@@ -83,4 +83,15 @@ class ProbeTest {
         assertFalse(ProfilePlan.canApply(true, true, false))
         assertTrue(ProfilePlan.canApply(true, true, true))
     }
+
+    @Test fun zt3Vcu159IsHardBlocked() {
+        val rows = listOf(RegisterCapture(0x16, 0x17, "vcu_version", 2, "5901"))
+        val result = X3CapabilityPolicy.profileWrites(ModelProfiles.ZT3_PRO, rows)
+        assertFalse(result.allowed)
+        assertTrue(result.title.contains("1.5.9"))
+    }
+
+    @Test fun unknownFirmwareIsHardBlocked() {
+        assertFalse(X3CapabilityPolicy.profileWrites(ModelProfiles.F3_PRO, emptyList()).allowed)
+    }
 }

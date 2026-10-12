@@ -76,6 +76,23 @@ object Zt3DeepScanPlan {
     )
 }
 
+data class MutationCapability(val allowed: Boolean, val title: String, val detail: String)
+
+object X3CapabilityPolicy {
+    private const val ZT3_VCU_159 = "5901"
+
+    fun profileWrites(model: ModelProfile, rows: List<RegisterCapture>): MutationCapability {
+        val version = rows.firstOrNull { it.device == 0x16 && it.name == "vcu_version" }?.valueHex?.uppercase()
+        if (model == ModelProfiles.ZT3_PRO && version == ZT3_VCU_159) {
+            return MutationCapability(false, "ZT3 Pro · VCU 1.5.9 protegida", "Diagnóstico e telemetria disponíveis. Alterações de velocidade, região e serial estão tecnicamente bloqueadas nesta versão.")
+        }
+        if (version == null) {
+            return MutationCapability(false, "Versão VCU por confirmar", "Executa primeiro a leitura e o snapshot completos. Nenhuma alteração será enviada sem identificar a VCU.")
+        }
+        return MutationCapability(false, "Escrita ainda não validada", "As funções avançadas permanecem visíveis, mas só serão ativadas após validação específica desta combinação de modelo e firmware.")
+    }
+}
+
 data class TelemetrySnapshot(
     val speedKmh: Float? = null, val batteryPercent: Int? = null,
     val voltageV: Float? = null, val currentA: Float? = null,

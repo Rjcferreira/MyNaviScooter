@@ -23,6 +23,7 @@ class Dashboard(private val context: Context) {
     lateinit var applyProfile: Button
     lateinit var restoreProfile: Button
     lateinit var deepScan: Button
+    private lateinit var capabilityNotice: TextView
     private lateinit var speedDial: SpeedDial
     private lateinit var batteryValue: TextView
     private lateinit var rangeValue: TextView
@@ -115,6 +116,8 @@ class Dashboard(private val context: Context) {
         profile.addView(label("Eco  ·  Drive  ·  Sport", 16f, orange))
         profile.addView(label("O estado inicial é guardado antes de qualquer alteração feita pela app.", 13f, muted))
         profile.addView(label("Teste limitado: apenas registos de velocidade 0x47/0x48", 15f, muted))
+        capabilityNotice = label("A verificar compatibilidade da VCU…", 13f, orange)
+        profile.addView(capabilityNotice)
         applyProfile = button("Aplicar Drive 25 / Sport 30", true, onApply).apply { visibility = View.GONE }
         restoreProfile = button("Voltar ao estado inicial", false, onRestore).apply { visibility = View.GONE }
         profile.addView(applyProfile); profile.addView(restoreProfile)
@@ -126,6 +129,15 @@ class Dashboard(private val context: Context) {
         return ScrollView(context).apply { isFillViewport = true; setBackgroundColor(ink); addView(root) }
     }
     fun select(name: String) { selected.text = name }
+    fun showMutationCapability(capability: MutationCapability, controlsVisible: Boolean) {
+        capabilityNotice.text = "${capability.title}\n${capability.detail}"
+        applyProfile.visibility = if (controlsVisible) View.VISIBLE else View.GONE
+        restoreProfile.visibility = if (controlsVisible) View.VISIBLE else View.GONE
+        applyProfile.isEnabled = capability.allowed
+        restoreProfile.isEnabled = capability.allowed
+        applyProfile.alpha = if (capability.allowed) 1f else .45f
+        restoreProfile.alpha = if (capability.allowed) 1f else .45f
+    }
     fun showTelemetry(value: TelemetrySnapshot) {
         speedDial.speed = value.speedKmh
         batteryValue.text = value.batteryPercent?.let { "$it %" } ?: "— %"
