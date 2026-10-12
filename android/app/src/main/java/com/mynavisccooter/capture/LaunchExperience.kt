@@ -15,6 +15,7 @@ import android.widget.CheckBox
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
 
@@ -64,6 +65,15 @@ class LaunchExperience(private val context: Context) {
         val model = text("F3", 25f).apply { gravity = Gravity.CENTER; setTypeface(null, Typeface.BOLD) }
         content.addView(model)
         content.addView(text("FAMÍLIA X3", 11f, muted).apply { letterSpacing = .22f; gravity = Gravity.CENTER })
+        val loading = text("A preparar uma ligação segura…", 13f, muted).apply {
+            gravity = Gravity.CENTER; setPadding(0, dp(18), 0, dp(8))
+        }
+        content.addView(loading)
+        val progress = ProgressBar(context, null, android.R.attr.progressBarStyleHorizontal).apply {
+            max = 100; progress = 0; progressTintList = android.content.res.ColorStateList.valueOf(orange)
+            progressBackgroundTintList = android.content.res.ColorStateList.valueOf(Color.rgb(26, 47, 64))
+        }
+        content.addView(progress, LinearLayout.LayoutParams(-1, dp(5)).apply { leftMargin = dp(22); rightMargin = dp(22) })
         splash.addView(content, FrameLayout.LayoutParams(-1, -1))
         host.removeAllViews(); host.addView(splash)
 
@@ -73,7 +83,9 @@ class LaunchExperience(private val context: Context) {
             R.drawable.scooter_zt3 to "ZT3 PRO",
             R.drawable.scooter_gt3 to "GT3"
         )
-        sequence.forEachIndexed { index, (image, name) ->
+        val introDuration = 20_000L
+        val frames = List(2) { sequence }.flatten()
+        frames.forEachIndexed { index, (image, name) ->
             handler.postDelayed({
                 scooter.setImageResource(image); model.text = name
                 AnimatorSet().apply {
@@ -82,12 +94,21 @@ class LaunchExperience(private val context: Context) {
                         ObjectAnimator.ofFloat(scooter, View.TRANSLATION_X, dp(26).toFloat(), 0f)
                     ); duration = 260; start()
                 }
-            }, index * 520L)
+            }, index * (introDuration / frames.size))
         }
+        for (step in 1..100) handler.postDelayed({
+            progress.progress = step
+            loading.text = when {
+                step < 30 -> "A preparar a experiência…"
+                step < 65 -> "A carregar perfis da família X3…"
+                step < 90 -> "A preparar Bluetooth e segurança…"
+                else -> "Tudo pronto."
+            }
+        }, introDuration * step / 100)
         handler.postDelayed({
             if (prefs.getInt("legal_version", 0) >= legalVersion) onReady()
             else showTerms(host, onReady)
-        }, sequence.size * 520L + 260L)
+        }, introDuration + 250L)
     }
 
     private fun showTerms(host: FrameLayout, onReady: () -> Unit) {

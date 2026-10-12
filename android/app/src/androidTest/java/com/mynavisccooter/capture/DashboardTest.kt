@@ -28,8 +28,8 @@ class DashboardTest {
             "cp ${file.absolutePath} /data/local/tmp/$name.png"
         )).use { it.readBytes() }
     }
-    @Test fun homeAndSettingsWorkWithoutBluetoothHardware() {
-        Thread.sleep(2700)
+    @Test fun onboardingStopsAtConnectionWithoutBluetoothHardware() {
+        Thread.sleep(20_700)
         val needsConsent = runCatching {
             onView(withText("Continuar")).check(matches(isDisplayed())); true
         }.getOrDefault(false)
@@ -41,14 +41,9 @@ class DashboardTest {
             onView(withText("Li, compreendi e aceito continuar.")).perform(click())
             onView(withText("Aceitar e entrar")).perform(click())
         }
-        onView(withText("Boa viagem!")).check(matches(isDisplayed()))
-        screenshot("dashboard-home")
-        onView(isAssignableFrom(android.widget.ScrollView::class.java)).perform(swipeUp(), swipeUp())
-        onView(withText("Configurações e diagnóstico")).check(matches(isDisplayed()))
-        screenshot("dashboard-controls")
-        onView(withText("Configurações e diagnóstico")).perform(click())
-        onView(withText("Sobre esta versão")).perform(click())
-        onView(withText("Fechar")).check(matches(isDisplayed()))
-        screenshot("dashboard-about")
+        onView(withText("Liga a tua scooter")).check(matches(isDisplayed()))
+        onView(withText("Procurar scooter")).check(matches(isDisplayed()))
+        onView(withText("Boa viagem!")).check(androidx.test.espresso.assertion.ViewAssertions.doesNotExist())
+        screenshot("connection-home")
     }
 }

@@ -49,7 +49,7 @@ class Dashboard(private val context: Context) {
         layoutParams = LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6); bottomMargin = dp(8) }
         setOnClickListener { action() }
     }
-    fun create(onScan: () -> Unit, onRecover: () -> Unit, onDeepScan: () -> Unit, onApply: () -> Unit, onRestore: () -> Unit, onExport: () -> Unit, onSettings: () -> Unit): View {
+    fun create(connectionOnly: Boolean = false, onScan: () -> Unit, onRecover: () -> Unit, onDeepScan: () -> Unit, onApply: () -> Unit, onRestore: () -> Unit, onExport: () -> Unit, onSettings: () -> Unit): View {
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL; setPadding(dp(22), dp(20), dp(22), dp(24)); setBackgroundColor(ink)
         }
@@ -60,25 +60,30 @@ class Dashboard(private val context: Context) {
         root.addView(label("MAIS LIBERDADE EM CADA TRAJETO", 10f, muted).apply { letterSpacing = .18f })
         badge = label("BLUETOOTH  ·  Desligado", 12f, muted)
         root.addView(badge)
-        root.addView(label("Boa viagem!", 30f).apply { setTypeface(null, Typeface.BOLD); setPadding(0, dp(22), 0, 0) })
-        selected = label("Liga a tua scooter para começar.", 15f, muted)
+        root.addView(label(if (connectionOnly) "Liga a tua scooter" else "Boa viagem!", 30f).apply { setTypeface(null, Typeface.BOLD); setPadding(0, dp(22), 0, 0) })
+        selected = label(if (connectionOnly) "Vamos acompanhar cada passo da ligação." else "Scooter ligada e pronta.", 15f, muted)
         root.addView(selected)
-        speedDial = SpeedDial(context)
-        root.addView(speedDial, LinearLayout.LayoutParams(-1, dp(265)))
-        val stats = card()
-        val statsRow = LinearLayout(context)
-        listOf("— %" to "BATERIA", "— km" to "AUTONOMIA").forEachIndexed { index, (value, caption) ->
-            val column = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
-            val valueView = label(value, 25f).apply { setTypeface(null, Typeface.BOLD) }
-            if (index == 0) batteryValue = valueView else rangeValue = valueView
-            column.addView(valueView)
-            column.addView(label(caption, 10f, muted))
-            statsRow.addView(column, LinearLayout.LayoutParams(0, -2, 1f))
+        if (connectionOnly) {
+            root.addView(ImageView(context).apply {
+                setImageResource(R.drawable.scooter_zt3); scaleType = ImageView.ScaleType.CENTER_INSIDE
+                contentDescription = "Scooter elétrica da família X3"
+            }, LinearLayout.LayoutParams(-1, dp(230)))
+        } else {
+            speedDial = SpeedDial(context)
+            root.addView(speedDial, LinearLayout.LayoutParams(-1, dp(265)))
+            val stats = card()
+            val statsRow = LinearLayout(context)
+            listOf("— %" to "BATERIA", "— km" to "AUTONOMIA").forEachIndexed { index, (value, caption) ->
+                val column = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+                val valueView = label(value, 25f).apply { setTypeface(null, Typeface.BOLD) }
+                if (index == 0) batteryValue = valueView else rangeValue = valueView
+                column.addView(valueView); column.addView(label(caption, 10f, muted))
+                statsRow.addView(column, LinearLayout.LayoutParams(0, -2, 1f))
+            }
+            stats.addView(statsRow)
+            telemetryDetail = label("Telemetria ainda indisponível", 12f, muted)
+            stats.addView(telemetryDetail); root.addView(stats)
         }
-        stats.addView(statsRow)
-        telemetryDetail = label("Telemetria ainda indisponível", 12f, muted)
-        stats.addView(telemetryDetail)
-        root.addView(stats)
         val connection = card()
         connection.addView(label("A tua scooter", 20f).apply { setTypeface(null, Typeface.BOLD) })
         steps = label("1  Ligar    ·    2  Emparelhar    ·    3  Autenticar", 12f, muted)
@@ -92,7 +97,12 @@ class Dashboard(private val context: Context) {
         connection.addView(devices)
         recover = button("Emparelhar novamente", false, onRecover).apply { visibility = View.GONE }
         connection.addView(recover)
+        connection.visibility = if (connectionOnly) View.VISIBLE else View.GONE
         root.addView(connection)
+        if (connectionOnly) {
+            root.addView(label("A app só abrirá as funções depois de confirmar a autenticação e proteger o estado inicial.", 12f, muted))
+            return ScrollView(context).apply { isFillViewport = true; setBackgroundColor(ink); addView(root) }
+        }
         val diagnostics = card()
         diagnostics.addView(label("DIAGNÓSTICO AVANÇADO", 11f, muted).apply { letterSpacing = .13f })
         diagnostics.addView(label("Scanner profundo ZT3", 20f).apply { setTypeface(null, Typeface.BOLD) })

@@ -27,6 +27,7 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
     private var selected: ScannedScooter? = null
     private var busy = false
     private lateinit var container: FrameLayout
+    private var functionsVisible = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -42,11 +43,16 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
             insets
         }
         ViewCompat.requestApplyInsets(container)
-        LaunchExperience(this).show(container) { showMainExperience() }
+        LaunchExperience(this).show(container) { showConnectionExperience() }
     }
 
-    private fun showMainExperience() {
+    private fun showConnectionExperience() = showExperience(true)
+    private fun showMainExperience() = showExperience(false)
+
+    private fun showExperience(connectionOnly: Boolean) {
+        functionsVisible = !connectionOnly
         val view = dashboard.create(
+            connectionOnly = connectionOnly,
             onScan = { if (permissionsReady()) { dashboard.recover.visibility = View.GONE; ble.startScan() } else requestPermissions() },
             onRecover = { selected?.let { connect(it, true) } },
             onDeepScan = { confirmDeepScan() },
@@ -86,8 +92,10 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
         dashboard.recover.visibility = View.GONE
         dashboard.devices.removeAllViews()
         latestReport = null
-        dashboard.export.isEnabled = false
-        dashboard.export.alpha = .45f
+        if (functionsVisible) {
+            dashboard.export.isEnabled = false
+            dashboard.export.alpha = .45f
+        }
         busy = true
         ble.connect(item, repair, operation)
     }
@@ -109,8 +117,9 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
             latestReport = report
             busy = false
             pairingDialog?.dismiss(); pairingDialog = null
-            dashboard.stage("finished")
             val ok = report.protocolProbe?.authenticated == true
+            if (ok) showMainExperience()
+            dashboard.stage("finished")
             dashboard.status.text = when {
                 report.outcome == "authenticated_storage_failed" -> "A scooter autenticou, mas a gravação local falhou. Credencial pendente preservada."
                 report.outcome == "initial_state_saved" -> "Estado inicial cifrado e verificado. Os controlos limitados estão disponíveis."
@@ -128,6 +137,7 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
                 else -> "Ligação não concluída (${report.outcome}). Podes exportar o diagnóstico."
             }
             dashboard.recover.visibility = if (!ok && selected != null) View.VISIBLE else View.GONE
+            if (!ok) return@runOnUiThread
             val baselineReady = report.outcome in setOf("initial_state_saved", "profile_write_verified", "profile_write_not_persisted", "region_change_required")
             dashboard.applyProfile.visibility = if (baselineReady) View.VISIBLE else View.GONE
             dashboard.restoreProfile.visibility = if (baselineReady) View.VISIBLE else View.GONE
