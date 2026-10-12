@@ -87,6 +87,10 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
 
     private fun connect(item: ScannedScooter, repair: Boolean = false, operation: RequestedOperation = RequestedOperation.CAPTURE) {
         if (busy) return
+        if (item.model == ModelProfiles.X3_FAMILY) {
+            chooseExactModel(item, repair, operation)
+            return
+        }
         selected = item
         dashboard.select(item.name)
         dashboard.recover.visibility = View.GONE
@@ -98,6 +102,23 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
         }
         busy = true
         ble.connect(item, repair, operation)
+    }
+
+    private fun chooseExactModel(item: ScannedScooter, repair: Boolean, operation: RequestedOperation) {
+        val profiles = arrayOf(
+            ModelProfiles.ZT3_PRO,
+            ModelProfiles.F3_PRO,
+            ModelProfiles.MAX_G3,
+            ModelProfiles.GT3
+        )
+        AlertDialog.Builder(this)
+            .setTitle("Qual é o modelo exato?")
+            .setMessage("O anúncio Bluetooth identifica a família X3, mas não distingue o modelo. Seleciona a tua scooter para a app nunca mostrar uma imagem incorreta.")
+            .setItems(profiles.map { it.name }.toTypedArray()) { _, index ->
+                connect(item.copy(model = profiles[index]), repair, operation)
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
     }
 
     override fun onStage(stage: String) { runOnUiThread { dashboard.stage(stage) } }

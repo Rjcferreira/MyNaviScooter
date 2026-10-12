@@ -13,6 +13,7 @@ object ModelProfiles {
     val X3_FAMILY = ModelProfile("Segway X3 (ZT3/F3/GT3)", -1, -1, -1, "X3", "medium")
     val ZT3_PRO = ModelProfile("Segway ZT3 Pro", 10256, 256, 191, "X3 / VCU 0x16", "high")
     val F3_PRO = ModelProfile("Segway F3 Pro", 10259, 259, 192, "X3 / VCU 0x16", "high")
+    val MAX_G3 = ModelProfile("Segway MAX G3", -1, -1, -1, "X3 / VCU 0x16", "user-confirmed")
     val GT3 = ModelProfile("Segway GT3", 10257, 257, 192, "X3 / VCU 0x16", "high")
     val UNKNOWN = ModelProfile("Segway / Ninebot desconhecida", -1, -1, -1, "unknown", "low")
 
@@ -21,6 +22,7 @@ object ModelProfiles {
         return when {
             n.contains("zt3") -> ZT3_PRO
             n.contains("f3") -> F3_PRO
+            n.contains("max g3") || n.contains("max_g3") -> MAX_G3
             n.contains("gt3") -> GT3
             // Android exposes the company ID and payload separately. The complete
             // X3 signature is 0x4E43 + 0100020000FC; some devices expose it as 434E.

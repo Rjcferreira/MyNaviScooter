@@ -50,7 +50,11 @@ class ProbeTest {
         assertEquals("medium", ModelProfiles.fromAdvertisement("unknown", "434E0100020000FC").confidence)
     }
 
-    @Test fun recognizesKukirinG2FamilyByAdvertisedName() {
+    @Test fun recognizesExactSegwayModelWhenAdvertised() {
+        assertEquals(ModelProfiles.ZT3_PRO, ModelProfiles.fromAdvertisement("Segway ZT3 Pro", ""))
+        assertEquals(ModelProfiles.F3_PRO, ModelProfiles.fromAdvertisement("Segway F3 Pro", ""))
+        assertEquals(ModelProfiles.MAX_G3, ModelProfiles.fromAdvertisement("Segway MAX G3", ""))
+        assertEquals(ModelProfiles.GT3, ModelProfiles.fromAdvertisement("Segway GT3", ""))
     }
 
     @Test fun authFrameUsesReconnectCounterTwoAndNoSetPassword() {
