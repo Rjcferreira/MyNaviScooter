@@ -51,6 +51,7 @@ class ProbeTest {
     }
 
     @Test fun recognizesExactSegwayModelWhenAdvertised() {
+        assertEquals(ModelProfiles.ZT3_PRO, ModelProfiles.fromAdvertisement("1K1DA2531P1294", "434E0100020000FC"))
         assertEquals(ModelProfiles.ZT3_PRO, ModelProfiles.fromAdvertisement("Segway ZT3 Pro", ""))
         assertEquals(ModelProfiles.F3_PRO, ModelProfiles.fromAdvertisement("Segway F3 Pro", ""))
         assertEquals(ModelProfiles.MAX_G3, ModelProfiles.fromAdvertisement("Segway MAX G3", ""))

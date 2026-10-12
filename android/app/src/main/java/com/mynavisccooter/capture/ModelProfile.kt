@@ -20,6 +20,10 @@ object ModelProfiles {
     fun fromAdvertisement(name: String?, manufacturerHex: String): ModelProfile {
         val n = (name ?: "").lowercase()
         return when {
+            // Confirmed from the owner's official Segway identification and
+            // authenticated PRE_COMM serial. This avoids asking for the model
+            // again every time the known ZT3 is selected from the BLE list.
+            n.startsWith("1k1d") -> ZT3_PRO
             n.contains("zt3") -> ZT3_PRO
             n.contains("f3") -> F3_PRO
             n.contains("max g3") || n.contains("max_g3") -> MAX_G3
