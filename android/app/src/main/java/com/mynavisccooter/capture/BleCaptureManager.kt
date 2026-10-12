@@ -521,7 +521,7 @@ class BleCaptureManager(private val context: Context, private val listener: List
     private fun beginDeepScan(g: BluetoothGatt) {
         deepScanResults.clear(); deepScanTimeouts.clear(); deepScanIndex = 0
         authNote = "AUTH aceite; backup inicial verificado. Inventário profundo apenas de leitura iniciado."
-        listener.onStatus("Backup protegido. A ler os 25 registos documentados da VCU, MCU, BLE e BMS…")
+        listener.onStatus("Backup protegido. A ler configuração e telemetria documentada da VCU, MCU, BLE e BMS…")
         sendNextDeepScanRead(g)
     }
 

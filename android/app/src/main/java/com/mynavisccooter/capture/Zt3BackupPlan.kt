@@ -48,5 +48,68 @@ object Zt3DeepScanPlan {
         RegisterSpec(0x02, 0xE7, "mcu_flag"),
         RegisterSpec(0x04, 0x01, "ble_version"),
         RegisterSpec(0x07, 0x82, "charge_threshold")
+        ,RegisterSpec(0x16, 0x55, "battery_percent")
+        ,RegisterSpec(0x16, 0x57, "vcu_speed")
+        ,RegisterSpec(0x16, 0x58, "error_code")
+        ,RegisterSpec(0x16, 0x59, "warning_code")
+        ,RegisterSpec(0x16, 0x5A, "drive_mode")
+        ,RegisterSpec(0x16, 0x5F, "remaining_range")
+        ,RegisterSpec(0x16, 0x62, "odometer", 4)
+        ,RegisterSpec(0x16, 0x64, "total_runtime", 4)
+        ,RegisterSpec(0x16, 0x68, "trip_distance", 4)
+        ,RegisterSpec(0x16, 0x6A, "trip_time", 4)
+        ,RegisterSpec(0x16, 0x6B, "vcu_temperature")
+        ,RegisterSpec(0x07, 0x59, "battery_cycles")
+        ,RegisterSpec(0x07, 0x8C, "battery_voltage")
+        ,RegisterSpec(0x07, 0x8D, "battery_current")
+        ,RegisterSpec(0x07, 0x8E, "battery_health")
+        ,RegisterSpec(0x07, 0x8F, "battery_soc")
+        ,RegisterSpec(0x07, 0x92, "charging_state")
+        ,RegisterSpec(0x07, 0x96, "battery_temperatures", 4)
+        ,RegisterSpec(0x07, 0xA0, "cell_voltages", 26)
+        ,RegisterSpec(0x07, 0xF9, "battery_temperature")
+        ,RegisterSpec(0x02, 0x3E, "mcu_temperature")
+        ,RegisterSpec(0x02, 0x48, "motor_temperature_a")
+        ,RegisterSpec(0x02, 0x49, "motor_temperature_b")
+        ,RegisterSpec(0x02, 0x86, "mcu_speed")
+        ,RegisterSpec(0x02, 0x8F, "mcu_voltage")
     )
+}
+
+data class TelemetrySnapshot(
+    val speedKmh: Float? = null, val batteryPercent: Int? = null,
+    val voltageV: Float? = null, val currentA: Float? = null,
+    val powerW: Float? = null, val rangeKm: Float? = null,
+    val vcuTempC: Float? = null, val batteryTempC: Float? = null,
+    val motorTempC: Float? = null, val odometerKm: Float? = null,
+    val tripKm: Float? = null, val errorCode: Int? = null,
+    val warningCode: Int? = null, val cellVoltagesMv: List<Int> = emptyList()
+)
+
+object Zt3TelemetryDecoder {
+    private fun bytes(hex: String): ByteArray = runCatching {
+        hex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+    }.getOrDefault(byteArrayOf())
+    private fun u16(b: ByteArray) = if (b.size >= 2) (b[0].toInt() and 255) or ((b[1].toInt() and 255) shl 8) else 0
+    private fun s16(b: ByteArray): Int = u16(b).toShort().toInt()
+    private fun find(rows: List<RegisterCapture>, name: String) = rows.firstOrNull { it.name == name }?.let { bytes(it.valueHex) }
+    fun decode(rows: List<RegisterCapture>): TelemetrySnapshot {
+        val volts = find(rows, "battery_voltage")?.let { u16(it) / 100f }
+        val amps = find(rows, "battery_current")?.let { s16(it) / 100f }
+        val cells = find(rows, "cell_voltages")?.toList()?.chunked(2)?.filter { it.size == 2 }
+            ?.map { (it[0].toInt() and 255) or ((it[1].toInt() and 255) shl 8) }.orEmpty()
+        return TelemetrySnapshot(
+            speedKmh = (find(rows, "mcu_speed") ?: find(rows, "vcu_speed"))?.let { u16(it) / 10f },
+            batteryPercent = (find(rows, "battery_soc") ?: find(rows, "battery_percent"))?.firstOrNull()?.toInt()?.and(255),
+            voltageV = volts, currentA = amps, powerW = if (volts != null && amps != null) volts * amps else null,
+            rangeKm = find(rows, "remaining_range")?.let { u16(it) / 100f },
+            vcuTempC = find(rows, "vcu_temperature")?.let { s16(it) / 10f },
+            batteryTempC = find(rows, "battery_temperatures")?.let { maxOf(it[0].toInt() and 255, it[1].toInt() and 255).toFloat() },
+            motorTempC = find(rows, "motor_temperature_a")?.let { s16(it) / 10f },
+            odometerKm = find(rows, "odometer")?.let { u16(it).toFloat() },
+            tripKm = find(rows, "trip_distance")?.let { u16(it).toFloat() },
+            errorCode = find(rows, "error_code")?.let(::u16), warningCode = find(rows, "warning_code")?.let(::u16),
+            cellVoltagesMv = cells
+        )
+    }
 }

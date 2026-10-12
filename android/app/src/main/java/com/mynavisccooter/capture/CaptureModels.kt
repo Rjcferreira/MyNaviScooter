@@ -98,7 +98,10 @@ data class CaptureReport(
             val rows = scan.results.joinToString(",", "[", "]") { r ->
                 "{\"device\":${r.device},\"register\":${r.register},\"name\":\"${esc(r.name)}\",\"expectedBytes\":${r.expectedBytes},\"valueHex\":\"${esc(r.valueHex)}\"}"
             }
-            "{\"plan\":\"${esc(scan.plan)}\",\"readOnly\":${scan.readOnly},\"captured\":${scan.results.size},\"requested\":${Zt3DeepScanPlan.documented.size},\"timedOut\":${scan.timedOut.joinToString(",", "[", "]") { "\"${esc(it)}\"" }},\"registers\":$rows}"
+            val t = Zt3TelemetryDecoder.decode(scan.results)
+            val cells = t.cellVoltagesMv.joinToString(",", "[", "]")
+            val telemetry = "{\"speedKmh\":${t.speedKmh ?: "null"},\"batteryPercent\":${t.batteryPercent ?: "null"},\"voltageV\":${t.voltageV ?: "null"},\"currentA\":${t.currentA ?: "null"},\"powerW\":${t.powerW ?: "null"},\"rangeKm\":${t.rangeKm ?: "null"},\"vcuTempC\":${t.vcuTempC ?: "null"},\"batteryTempC\":${t.batteryTempC ?: "null"},\"motorTempC\":${t.motorTempC ?: "null"},\"odometerKm\":${t.odometerKm ?: "null"},\"tripKm\":${t.tripKm ?: "null"},\"errorCode\":${t.errorCode ?: "null"},\"warningCode\":${t.warningCode ?: "null"},\"cellVoltagesMv\":$cells}"
+            "{\"plan\":\"${esc(scan.plan)}\",\"readOnly\":${scan.readOnly},\"captured\":${scan.results.size},\"requested\":${Zt3DeepScanPlan.documented.size},\"timedOut\":${scan.timedOut.joinToString(",", "[", "]") { "\"${esc(it)}\"" }},\"telemetry\":$telemetry,\"registers\":$rows}"
         } ?: "null"
 
         return """

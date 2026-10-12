@@ -23,6 +23,10 @@ class Dashboard(private val context: Context) {
     lateinit var applyProfile: Button
     lateinit var restoreProfile: Button
     lateinit var deepScan: Button
+    private lateinit var speedDial: SpeedDial
+    private lateinit var batteryValue: TextView
+    private lateinit var rangeValue: TextView
+    private lateinit var telemetryDetail: TextView
     private lateinit var steps: TextView
     private lateinit var selected: TextView
     fun dp(n: Int) = (n * context.resources.displayMetrics.density).toInt()
@@ -59,17 +63,21 @@ class Dashboard(private val context: Context) {
         root.addView(label("Boa viagem!", 30f).apply { setTypeface(null, Typeface.BOLD); setPadding(0, dp(22), 0, 0) })
         selected = label("Liga a tua scooter para começar.", 15f, muted)
         root.addView(selected)
-        root.addView(SpeedDial(context), LinearLayout.LayoutParams(-1, dp(265)))
+        speedDial = SpeedDial(context)
+        root.addView(speedDial, LinearLayout.LayoutParams(-1, dp(265)))
         val stats = card()
         val statsRow = LinearLayout(context)
-        listOf("— %" to "BATERIA", "— km" to "AUTONOMIA").forEach { (value, caption) ->
+        listOf("— %" to "BATERIA", "— km" to "AUTONOMIA").forEachIndexed { index, (value, caption) ->
             val column = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
-            column.addView(label(value, 25f).apply { setTypeface(null, Typeface.BOLD) })
+            val valueView = label(value, 25f).apply { setTypeface(null, Typeface.BOLD) }
+            if (index == 0) batteryValue = valueView else rangeValue = valueView
+            column.addView(valueView)
             column.addView(label(caption, 10f, muted))
             statsRow.addView(column, LinearLayout.LayoutParams(0, -2, 1f))
         }
         stats.addView(statsRow)
-        stats.addView(label("Telemetria ainda indisponível", 12f, muted))
+        telemetryDetail = label("Telemetria ainda indisponível", 12f, muted)
+        stats.addView(telemetryDetail)
         root.addView(stats)
         val connection = card()
         connection.addView(label("A tua scooter", 20f).apply { setTypeface(null, Typeface.BOLD) })
@@ -109,6 +117,19 @@ class Dashboard(private val context: Context) {
         return ScrollView(context).apply { isFillViewport = true; setBackgroundColor(ink); addView(root) }
     }
     fun select(name: String) { selected.text = name }
+    fun showTelemetry(value: TelemetrySnapshot) {
+        speedDial.speed = value.speedKmh
+        batteryValue.text = value.batteryPercent?.let { "$it %" } ?: "— %"
+        rangeValue.text = value.rangeKm?.let { "%.1f km".format(it) } ?: "— km"
+        telemetryDetail.text = buildList {
+            value.voltageV?.let { add("%.2f V".format(it)) }
+            value.currentA?.let { add("%+.2f A".format(it)) }
+            value.powerW?.let { add("%+.0f W".format(it)) }
+            value.batteryTempC?.let { add("Bateria %.0f °C".format(it)) }
+            value.motorTempC?.let { add("Motor %.1f °C".format(it)) }
+            if (value.cellVoltagesMv.isNotEmpty()) add("${value.cellVoltagesMv.size} células · Δ ${value.cellVoltagesMv.max() - value.cellVoltagesMv.min()} mV")
+        }.joinToString("  ·  ").ifBlank { "Leitura parcial; consulta o relatório exportado." }
+    }
     fun stage(stage: String) {
         val state = when (stage) {
             "connect", "services", "mtu", "cccd", "precomm" -> "1  A ligar  →  2  Emparelhar  →  3  Autenticar"
@@ -128,6 +149,8 @@ class Dashboard(private val context: Context) {
 
 class SpeedDial(context: Context) : View(context) {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    var speed: Float? = null
+        set(value) { field = value; contentDescription = value?.let { "Velocidade %.1f quilómetros por hora".format(it) } ?: "Velocidade indisponível"; invalidate() }
     init { contentDescription = "Velocidade indisponível. Sem telemetria da scooter."; importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_YES }
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
@@ -150,9 +173,9 @@ class SpeedDial(context: Context) : View(context) {
         paint.color = Color.rgb(151, 175, 196); paint.typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
         paint.textSize = size * .038f; canvas.drawText("VELOCIDADE", cx, cy - size * .13f, paint)
         paint.color = Color.WHITE; paint.textSize = size * .24f; paint.typeface = Typeface.create("sans-serif", Typeface.BOLD)
-        canvas.drawText("—", cx, cy + size * .08f, paint)
+        canvas.drawText(speed?.let { "%.1f".format(it) } ?: "—", cx, cy + size * .08f, paint)
         paint.color = Color.rgb(151, 175, 196); paint.textSize = size * .055f
         canvas.drawText("km/h", cx, cy + size * .18f, paint)
-        paint.textSize = size * .033f; canvas.drawText("À ESPERA DE DADOS", cx, cy + size * .34f, paint)
+        paint.textSize = size * .033f; canvas.drawText(if (speed == null) "À ESPERA DE DADOS" else "LEITURA DA SCOOTER", cx, cy + size * .34f, paint)
     }
 }

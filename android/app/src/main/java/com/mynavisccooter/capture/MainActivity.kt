@@ -55,7 +55,7 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
         val item = selected ?: return
         AlertDialog.Builder(this)
             .setTitle("Scanner profundo só de leitura?")
-            .setMessage("A app autenticará, verificará primeiro o backup inicial e lerá os 25 registos documentados da VCU, MCU, BLE e BMS. Não escreve configurações, não altera a região e não lê a memória flash.")
+            .setMessage("A app autenticará, verificará primeiro o backup inicial e lerá os registos documentados da VCU, MCU, BLE e BMS, incluindo velocidade, bateria, tensão, corrente, temperaturas e células. Não escreve configurações, não altera a região e não lê a memória flash.")
             .setNegativeButton("Cancelar", null)
             .setPositiveButton("Iniciar scanner") { _, _ -> connect(item, false, RequestedOperation.DEEP_SCAN) }
             .show()
@@ -126,6 +126,7 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
             dashboard.applyProfile.visibility = if (baselineReady) View.VISIBLE else View.GONE
             dashboard.restoreProfile.visibility = if (baselineReady) View.VISIBLE else View.GONE
             dashboard.deepScan.visibility = if (ok) View.VISIBLE else View.GONE
+            report.deepScan?.let { dashboard.showTelemetry(Zt3TelemetryDecoder.decode(it.results)) }
             dashboard.export.isEnabled = true; dashboard.export.alpha = 1f
         }
     }
