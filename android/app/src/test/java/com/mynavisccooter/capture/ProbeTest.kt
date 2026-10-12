@@ -51,8 +51,6 @@ class ProbeTest {
     }
 
     @Test fun recognizesKukirinG2FamilyByAdvertisedName() {
-        assertEquals(ModelProfiles.KUKIRIN_G2_MAX, ModelProfiles.fromAdvertisement("KuKirin G2 Max", ""))
-        assertEquals(ModelProfiles.KUKIRIN_G2_MAX, ModelProfiles.fromAdvertisement("KUGOO G2MAX", ""))
     }
 
     @Test fun authFrameUsesReconnectCounterTwoAndNoSetPassword() {

@@ -87,14 +87,6 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
 
     private fun connect(item: ScannedScooter, repair: Boolean = false, operation: RequestedOperation = RequestedOperation.CAPTURE) {
         if (busy) return
-        if (item.model == ModelProfiles.KUKIRIN_G2_MAX) {
-            AlertDialog.Builder(this)
-                .setTitle("KuKirin G2 Max detetada")
-                .setMessage("A imagem e a deteção deste modelo já estão disponíveis. O protocolo KuKirin será validado primeiro num scanner separado e só de leitura; a app não enviará comandos Segway para esta scooter.")
-                .setPositiveButton("Entendi", null)
-                .show()
-            return
-        }
         selected = item
         dashboard.select(item.name)
         dashboard.recover.visibility = View.GONE

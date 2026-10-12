@@ -185,7 +185,6 @@ class Dashboard(private val context: Context) {
     private fun modelImage(item: ScannedScooter): Int {
         val identity = "${item.name} ${item.model.name}".lowercase()
         return when {
-            identity.contains("kukirin") && identity.contains("g2") -> R.drawable.scooter_kukirin_g2_max
             identity.contains("zt3") -> R.drawable.scooter_zt3
             identity.contains("gt3") -> R.drawable.scooter_gt3
             identity.contains("f3") -> R.drawable.scooter_f3
