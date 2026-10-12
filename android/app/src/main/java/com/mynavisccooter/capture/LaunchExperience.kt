@@ -103,7 +103,8 @@ class LaunchExperience(private val context: Context) {
         card.addView(text("Utilização responsável", 21f).apply { setTypeface(null, Typeface.BOLD) })
         card.addView(text("A MyNaviScooter permite consultar dados técnicos e, apenas quando explicitamente suportado, solicitar alterações à scooter.", 15f, muted).apply { setPadding(0, dp(12), 0, dp(12)) })
         card.addView(text("• Confirma sempre o modelo e o estado da scooter.\n\n• Não utilizes o telemóvel enquanto conduzes.\n\n• Faz testes apenas num local privado, seguro e sem trânsito.\n\n• Mantém um estado inicial verificável antes de qualquer alteração.", 15f))
-        root.addView(card, LinearLayout.LayoutParams(-1, 0, 1f))
+        root.addView(card, LinearLayout.LayoutParams(-1, -2))
+        root.addView(View(context), LinearLayout.LayoutParams(1, 0, 1f))
         root.addView(button("Continuar", true) { showLiability(host, onReady) })
         host.removeAllViews(); host.addView(root)
     }
