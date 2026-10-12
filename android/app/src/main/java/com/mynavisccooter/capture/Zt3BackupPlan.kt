@@ -96,10 +96,15 @@ object Zt3TelemetryDecoder {
     fun decode(rows: List<RegisterCapture>): TelemetrySnapshot {
         val volts = find(rows, "battery_voltage")?.let { u16(it) / 100f }
         val amps = find(rows, "battery_current")?.let { s16(it) / 100f }
+        val mcuSpeed = find(rows, "mcu_speed")?.let(::u16)
+        val vcuSpeed = find(rows, "vcu_speed")?.let(::u16)
+        // VCU 1.5.9 can expose the MCU speed register while returning a
+        // permanent zero. Keep MCU as preferred only when it has live data.
+        val speedRaw = mcuSpeed?.takeIf { it > 0 } ?: vcuSpeed ?: mcuSpeed
         val cells = find(rows, "cell_voltages")?.toList()?.chunked(2)?.filter { it.size == 2 }
             ?.map { (it[0].toInt() and 255) or ((it[1].toInt() and 255) shl 8) }.orEmpty()
         return TelemetrySnapshot(
-            speedKmh = (find(rows, "mcu_speed") ?: find(rows, "vcu_speed"))?.let { u16(it) / 10f },
+            speedKmh = speedRaw?.let { it / 10f },
             batteryPercent = (find(rows, "battery_soc") ?: find(rows, "battery_percent"))?.firstOrNull()?.toInt()?.and(255),
             voltageV = volts, currentA = amps, powerW = if (volts != null && amps != null) volts * amps else null,
             rangeKm = find(rows, "remaining_range")?.let { u16(it) / 100f },

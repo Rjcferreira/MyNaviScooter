@@ -24,4 +24,14 @@ class Zt3TelemetryDecoderTest {
         assertEquals(13, value.cellVoltagesMv.size)
         assertEquals(4105, value.cellVoltagesMv.first())
     }
+
+    @Test fun fallsBackToVcuSpeedWhenMcuRegisterIsZero() {
+        val value = Zt3TelemetryDecoder.decode(
+            listOf(
+                RegisterCapture(0x02, 0x86, "mcu_speed", 2, "0000"),
+                RegisterCapture(0x16, 0x57, "vcu_speed", 2, "6500")
+            )
+        )
+        assertEquals(10.1f, value.speedKmh!!, 0.001f)
+    }
 }
