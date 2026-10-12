@@ -11,6 +11,7 @@ class Zt3TelemetryDecoderTest {
             RegisterCapture(0x07, 0x8C, "battery_voltage", 2, "D714"),
             RegisterCapture(0x07, 0x8D, "battery_current", 2, "38FF"),
             RegisterCapture(0x16, 0x5F, "remaining_range", 2, "040B"),
+            RegisterCapture(0x16, 0x62, "odometer", 4, "3F310000"),
             RegisterCapture(0x07, 0xA0, "cell_voltages", 26, "0910091009100910091009100910091009100910091009100910")
         )
         val value = Zt3TelemetryDecoder.decode(rows)
@@ -19,6 +20,7 @@ class Zt3TelemetryDecoderTest {
         assertEquals(53.35f, value.voltageV!!, 0.001f)
         assertEquals(-2f, value.currentA!!, 0.001f)
         assertEquals(28.2f, value.rangeKm!!, 0.001f)
+        assertEquals(126.07f, value.odometerKm!!, 0.001f)
         assertEquals(13, value.cellVoltagesMv.size)
         assertEquals(4105, value.cellVoltagesMv.first())
     }

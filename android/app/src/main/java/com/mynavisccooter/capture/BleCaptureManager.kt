@@ -281,9 +281,10 @@ class BleCaptureManager(private val context: Context, private val listener: List
     private fun receive(g: BluetoothGatt, uuid: UUID, value: ByteArray) {
         event("notify characteristic=$uuid bytes=${value.size}")
         if (uuid != rxId || value.isEmpty()) return
-        if (notifications.size >= 64) { finish("notification_limit"); return }
         // A pairing response may echo credential material. Do not export raw pairing traffic.
-        if (!pairingWriteAttempted) notifications += bytesToHex(value) ?: ""
+        // Keep the report bounded, but never terminate a legitimate long scan
+        // merely because its raw-frame diagnostic buffer is full.
+        if (!pairingWriteAttempted && notifications.size < 64) notifications += bytesToHex(value) ?: ""
         for (frame in frames.append(value)) {
             val parsed = Encryption2Probe.parsePreCommFrame(frame, selected!!.name)
             event("frame bytes=${frame.size} precommValid=${parsed != null}")

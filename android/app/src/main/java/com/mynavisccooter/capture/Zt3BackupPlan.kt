@@ -106,7 +106,10 @@ object Zt3TelemetryDecoder {
             vcuTempC = find(rows, "vcu_temperature")?.let { s16(it) / 10f },
             batteryTempC = find(rows, "battery_temperatures")?.let { maxOf(it[0].toInt() and 255, it[1].toInt() and 255).toFloat() },
             motorTempC = find(rows, "motor_temperature_a")?.let { s16(it) / 10f },
-            odometerKm = find(rows, "odometer")?.let { u16(it).toFloat() },
+            // This ZT3 reports 0x313F for an odometer close to 126 km. Treat
+            // the low word as hundredths of a kilometre; retain the raw bytes
+            // in the exported register list so this scale remains auditable.
+            odometerKm = find(rows, "odometer")?.let { u16(it) / 100f },
             tripKm = find(rows, "trip_distance")?.let { u16(it).toFloat() },
             errorCode = find(rows, "error_code")?.let(::u16), warningCode = find(rows, "warning_code")?.let(::u16),
             cellVoltagesMv = cells
