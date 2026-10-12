@@ -50,6 +50,11 @@ class ProbeTest {
         assertEquals("medium", ModelProfiles.fromAdvertisement("unknown", "434E0100020000FC").confidence)
     }
 
+    @Test fun recognizesKukirinG2FamilyByAdvertisedName() {
+        assertEquals(ModelProfiles.KUKIRIN_G2_MAX, ModelProfiles.fromAdvertisement("KuKirin G2 Max", ""))
+        assertEquals(ModelProfiles.KUKIRIN_G2_MAX, ModelProfiles.fromAdvertisement("KUGOO G2MAX", ""))
+    }
+
     @Test fun authFrameUsesReconnectCounterTwoAndNoSetPassword() {
         val frame = Encryption2Probe.buildAuthFrame(name, "00112233445566778899AABBCCDDEEFF", "00112233445566778899AABBCCDDEEFF", name)
         assertEquals(27, frame.size)
