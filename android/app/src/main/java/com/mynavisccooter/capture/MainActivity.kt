@@ -106,8 +106,8 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
         runOnUiThread {
             if (busy) return@runOnUiThread
             dashboard.devices.removeAllViews()
-            devices.forEach { item ->
-                dashboard.devices.addView(dashboard.button("${item.name}\n${item.model.name} · ${item.rssi} dBm") { connect(item) })
+            devices.sortedByDescending { it.rssi }.forEach { item ->
+                dashboard.devices.addView(dashboard.scooterResult(item) { connect(item) })
             }
         }
     }

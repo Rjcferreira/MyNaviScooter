@@ -63,12 +63,7 @@ class Dashboard(private val context: Context) {
         root.addView(label(if (connectionOnly) "Liga a tua scooter" else "Boa viagem!", 30f).apply { setTypeface(null, Typeface.BOLD); setPadding(0, dp(22), 0, 0) })
         selected = label(if (connectionOnly) "Vamos acompanhar cada passo da ligação." else "Scooter ligada e pronta.", 15f, muted)
         root.addView(selected)
-        if (connectionOnly) {
-            root.addView(ImageView(context).apply {
-                setImageResource(R.drawable.scooter_zt3); scaleType = ImageView.ScaleType.CENTER_INSIDE
-                contentDescription = "Scooter elétrica da família X3"
-            }, LinearLayout.LayoutParams(-1, dp(230)))
-        } else {
+        if (!connectionOnly) {
             speedDial = SpeedDial(context)
             root.addView(speedDial, LinearLayout.LayoutParams(-1, dp(265)))
             val stats = card()
@@ -85,7 +80,7 @@ class Dashboard(private val context: Context) {
             stats.addView(telemetryDetail); root.addView(stats)
         }
         val connection = card()
-        connection.addView(label("A tua scooter", 20f).apply { setTypeface(null, Typeface.BOLD) })
+        connection.addView(label("Ligar por Bluetooth", 20f).apply { setTypeface(null, Typeface.BOLD) })
         steps = label("1  Ligar    ·    2  Emparelhar    ·    3  Autenticar", 12f, muted)
         connection.addView(steps)
         status = label("Liga a scooter e mantém o telemóvel por perto.", 14f, muted)
@@ -93,6 +88,10 @@ class Dashboard(private val context: Context) {
         connection.addView(status)
         scan = button("Procurar scooter", true, onScan)
         connection.addView(scan)
+        connection.addView(label("SCOOTERS ENCONTRADAS", 10f, muted).apply {
+            letterSpacing = .13f
+            setPadding(0, dp(12), 0, dp(6))
+        })
         devices = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
         connection.addView(devices)
         recover = button("Emparelhar novamente", false, onRecover).apply { visibility = View.GONE }
@@ -140,6 +139,59 @@ class Dashboard(private val context: Context) {
             if (value.cellVoltagesMv.isNotEmpty()) add("${value.cellVoltagesMv.size} células · Δ ${value.cellVoltagesMv.max() - value.cellVoltagesMv.min()} mV")
         }.joinToString("  ·  ").ifBlank { "Leitura parcial; consulta o relatório exportado." }
     }
+    fun scooterResult(item: ScannedScooter, action: () -> Unit): View {
+        val row = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = background(Color.rgb(9, 24, 37), Color.rgb(35, 61, 80))
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            isClickable = true
+            isFocusable = true
+            contentDescription = "${item.model.name}, ${item.name}, sinal ${signalBars(item.rssi)} de 5"
+            layoutParams = LinearLayout.LayoutParams(-1, dp(92)).apply {
+                topMargin = dp(5); bottomMargin = dp(5)
+            }
+            setOnClickListener { action() }
+        }
+        row.addView(ImageView(context).apply {
+            setImageResource(modelImage(item))
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            contentDescription = null
+        }, LinearLayout.LayoutParams(dp(76), dp(68)).apply { rightMargin = dp(12) })
+        val identity = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+        identity.addView(label(item.model.name, 15f).apply {
+            setTypeface(null, Typeface.BOLD)
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        })
+        identity.addView(label(item.name, 12f, muted).apply {
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        })
+        identity.addView(label("${item.rssi} dBm", 11f, muted))
+        row.addView(identity, LinearLayout.LayoutParams(0, -2, 1f))
+        row.addView(SignalStrengthView(context).apply { rssi = item.rssi }, LinearLayout.LayoutParams(dp(62), dp(46)).apply {
+            leftMargin = dp(8)
+        })
+        return row
+    }
+    private fun signalBars(rssi: Int) = when {
+        rssi >= -55 -> 5
+        rssi >= -65 -> 4
+        rssi >= -75 -> 3
+        rssi >= -85 -> 2
+        else -> 1
+    }
+    private fun modelImage(item: ScannedScooter): Int {
+        val identity = "${item.name} ${item.model.name}".lowercase()
+        return when {
+            identity.contains("zt3") -> R.drawable.scooter_zt3
+            identity.contains("gt3") -> R.drawable.scooter_gt3
+            identity.contains("f3") -> R.drawable.scooter_f3
+            identity.contains("g3") -> R.drawable.scooter_g3
+            else -> R.drawable.scooter_zt3
+        }
+    }
     fun stage(stage: String) {
         val state = when (stage) {
             "connect", "services", "mtu", "cccd", "precomm" -> "1  A ligar  →  2  Emparelhar  →  3  Autenticar"
@@ -154,6 +206,41 @@ class Dashboard(private val context: Context) {
         badge.text = if (stage == "finished") "BLUETOOTH  ·  Desligado" else "BLUETOOTH  ·  Ligação em curso"
         scan.isEnabled = stage == "finished"
         scan.alpha = if (scan.isEnabled) 1f else .45f
+    }
+}
+
+class SignalStrengthView(context: Context) : View(context) {
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    var rssi: Int = -100
+        set(value) {
+            field = value
+            contentDescription = "Sinal ${bars(value)} de 5"
+            invalidate()
+        }
+    private fun bars(value: Int) = when {
+        value >= -55 -> 5
+        value >= -65 -> 4
+        value >= -75 -> 3
+        value >= -85 -> 2
+        else -> 1
+    }
+    override fun onDraw(canvas: Canvas) {
+        super.onDraw(canvas)
+        val active = bars(rssi)
+        val activeColor = when (active) {
+            1 -> Color.rgb(239, 76, 73)
+            2, 3 -> Color.rgb(244, 190, 52)
+            else -> Color.rgb(47, 218, 123)
+        }
+        val gap = width * .055f
+        val barWidth = (width - gap * 6) / 5f
+        val bottom = height * .82f
+        for (index in 0 until 5) {
+            val barHeight = height * (.20f + index * .13f)
+            val left = gap + index * (barWidth + gap)
+            paint.color = if (index < active) activeColor else Color.rgb(39, 59, 74)
+            canvas.drawRoundRect(left, bottom - barHeight, left + barWidth, bottom, barWidth * .45f, barWidth * .45f, paint)
+        }
     }
 }
 
