@@ -48,7 +48,17 @@ class DashboardTest {
         // Exercise function pages without requiring a physical BLE scooter.
         activity.scenario.onActivity { host ->
             val dashboard = Dashboard(host)
-            host.setContentView(dashboard.create(false, {}, {}, {}, {}, {}, {}, {}, {}, {}))
+            host.setContentView(android.widget.FrameLayout(host).apply {
+                // Mirror MainActivity's inset-aware container so the menu is
+                // not underneath the emulator's status bar.
+                androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(this) { view, insets ->
+                    val bars = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+                    view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+                    insets
+                }
+                addView(dashboard.create(false, {}, {}, {}, {}, {}, {}, {}, {}, {}))
+                androidx.core.view.ViewCompat.requestApplyInsets(this)
+            })
         }
         onView(withText("Boa viagem!")).check(matches(isDisplayed()))
         onView(withContentDescription("Atalhos das funções")).perform(click())
