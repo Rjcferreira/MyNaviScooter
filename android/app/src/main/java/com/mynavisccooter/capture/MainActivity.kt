@@ -61,6 +61,10 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
             onRestore = { confirmOperation(RequestedOperation.RESTORE_INITIAL) },
             onExport = { exportReport() }, onSettings = { settings() },
             onRequestLocation = { ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), 43) },
+            onGpsImport = { startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                type = "*/*"; addCategory(Intent.CATEGORY_OPENABLE)
+                putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("application/json", "text/plain"))
+            }, 45) },
             onLive = {
                 if (liveRunning) ble.stopTelemetry()
                 else if (!busy) selected?.let {
@@ -143,7 +147,7 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
             liveRunning = false
             pairingDialog?.dismiss(); pairingDialog = null
             val ok = report.protocolProbe?.authenticated == true
-            if (ok) showMainExperience()
+            if (ok && !functionsVisible) showMainExperience()
             dashboard.stage("finished")
             dashboard.status.text = when {
                 report.outcome == "authenticated_storage_failed" -> "A scooter autenticou, mas a gravação local falhou. Credencial pendente preservada."
@@ -224,6 +228,22 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
     @Deprecated("Legacy document result")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == 45 && resultCode == Activity.RESULT_OK) {
+            val uri = data?.data ?: return
+            runCatching {
+                checkNotNull(contentResolver.openInputStream(uri)).use { input ->
+                    val output = java.io.ByteArrayOutputStream(); val buffer = ByteArray(8192)
+                    while (output.size() <= 2_000_000) {
+                        val count = input.read(buffer); if (count < 0) break
+                        output.write(buffer, 0, count)
+                    }
+                    require(output.size() <= 2_000_000) { "Ficheiro GPS demasiado grande." }
+                    output.toString("UTF-8")
+                }
+            }.onSuccess { dashboard.importGpsLibrary(it) }
+                .onFailure { Toast.makeText(this, it.message ?: "Não foi possível importar.", Toast.LENGTH_LONG).show() }
+            return
+        }
         if (requestCode != 42 || resultCode != Activity.RESULT_OK) return
         val uri = data?.data ?: return
         val report = latestReport ?: return
