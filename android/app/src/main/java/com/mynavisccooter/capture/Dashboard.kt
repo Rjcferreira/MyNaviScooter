@@ -62,7 +62,7 @@ class Dashboard(private val context: Context) {
         layoutParams = LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6); bottomMargin = dp(8) }
         setOnClickListener { action() }
     }
-    fun create(connectionOnly: Boolean = false, onScan: () -> Unit, onRecover: () -> Unit, onDeepScan: () -> Unit, onApply: () -> Unit, onRestore: () -> Unit, onExport: () -> Unit, onSettings: () -> Unit, onLive: () -> Unit, onRequestLocation: () -> Unit, onGpsImport: () -> Unit = {}): View {
+    fun create(connectionOnly: Boolean = false, onScan: () -> Unit, onRecover: () -> Unit, onDeepScan: () -> Unit, onApply: () -> Unit, onRestore: () -> Unit, onExport: () -> Unit, onSettings: () -> Unit, onLive: () -> Unit, onRequestLocation: () -> Unit, onGpsImport: () -> Unit = {}, onGpsExport: (String) -> Unit = {}): View {
         destroyMap()
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL; setPadding(dp(22), dp(20), dp(22), dp(24)); setBackgroundColor(ink)
@@ -165,7 +165,7 @@ class Dashboard(private val context: Context) {
             (view.parent as? ViewGroup)?.removeView(view)
             telemetry.addView(view)
         }
-        val gps = OnlineMapPanel(context, onRequestLocation, onGpsImport).also { gpsPanel = it }
+        val gps = OnlineMapPanel(context, onRequestLocation, onGpsImport, onGpsExport).also { gpsPanel = it }
         val reports = card().apply {
             (export.parent as? ViewGroup)?.removeView(export)
             addView(label("Relatórios", 24f))

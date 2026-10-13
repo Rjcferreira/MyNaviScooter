@@ -1,0 +1,18 @@
+name: Validate GPS community catalog
+on:
+  push:
+    paths: ['community/**', 'scripts/validate-community.mjs', '.github/workflows/validate-community.yml']
+  pull_request:
+    paths: ['community/**', 'scripts/validate-community.mjs', '.github/workflows/validate-community.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node scripts/validate-community.mjs --test

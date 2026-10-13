@@ -8,6 +8,25 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class GpsLibraryTest {
+    @Test fun communityReplacementRemovesWithdrawnEntriesAndPreservesPersonalData() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val personalPrefs = context.getSharedPreferences("gps_personal_test", android.content.Context.MODE_PRIVATE)
+        val approvedPrefs = context.getSharedPreferences("gps_approved_test", android.content.Context.MODE_PRIVATE)
+        personalPrefs.edit().clear().commit(); approvedPrefs.edit().clear().commit()
+        try {
+            val personal = GpsLibrary(context, "gps_personal_test")
+            personal.addPlace("Private", GpsPoint(52.0, 13.0))
+            val approved = GpsLibrary(context, "gps_approved_test")
+            approved.importJson("""{"schema":"mynavi-gps-community/v1","places":[{"id":"github:issue-1","name":"Approved","lat":52,"lon":13}],"hazards":[],"routes":[]}""", replace = true)
+            assertEquals(1, approved.places().size)
+            assertTrue(runCatching { approved.importJson("""{"schema":"mynavi-gps-community/v1","places":[{"id":"github:bad","name":"Bad","lat":500,"lon":13}]}""", replace = true) }.isFailure)
+            assertEquals(1, approved.places().size)
+            approved.importJson("""{"schema":"mynavi-gps-community/v1","places":[],"hazards":[],"routes":[]}""", replace = true)
+            assertTrue(approved.places().isEmpty())
+            assertEquals("Private", personal.places().single().name)
+            assertEquals("Private", GpsLibrary(context, "gps_personal_test").places().single().name)
+        } finally { personalPrefs.edit().clear().commit(); approvedPrefs.edit().clear().commit() }
+    }
     @Test fun exportImportDeduplicatesAndInvalidBatchDoesNotPartiallyChangeLibrary() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val prefs = context.getSharedPreferences("gps_library_v1", android.content.Context.MODE_PRIVATE)

@@ -65,6 +65,13 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
                 type = "*/*"; addCategory(Intent.CATEGORY_OPENABLE)
                 putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("application/json", "text/plain"))
             }, 45) },
+            onGpsExport = { text ->
+                java.io.File(cacheDir, "pending-gps-contribution.json").writeText(text)
+                startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                    type = "application/json"; addCategory(Intent.CATEGORY_OPENABLE)
+                    putExtra(Intent.EXTRA_TITLE, "mynavi-contribuicao-gps.json")
+                }, 46)
+            },
             onLive = {
                 if (liveRunning) ble.stopTelemetry()
                 else if (!busy) selected?.let {
@@ -228,6 +235,16 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
     @Deprecated("Legacy document result")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == 46 && resultCode == Activity.RESULT_OK) {
+            val uri = data?.data ?: return
+            runCatching {
+                java.io.File(cacheDir, "pending-gps-contribution.json").inputStream().use { input ->
+                    checkNotNull(contentResolver.openOutputStream(uri)).use { output -> input.copyTo(output) }
+                }
+            }.onSuccess { Toast.makeText(this, "JSON guardado. Anexa-o à tua Issue no GitHub.", Toast.LENGTH_LONG).show() }
+                .onFailure { Toast.makeText(this, "Não foi possível guardar a contribuição.", Toast.LENGTH_LONG).show() }
+            return
+        }
         if (requestCode == 45 && resultCode == Activity.RESULT_OK) {
             val uri = data?.data ?: return
             runCatching {

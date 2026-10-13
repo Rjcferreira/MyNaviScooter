@@ -4,6 +4,11 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class GpsNavigationTest {
+    @Test fun communityFeedRejectsProposalsAndPersonalIdentifiers() {
+        GpsCommunity.validateCatalog("""{"schema":"mynavi-gps-community/v1","publication":"moderated","places":[],"hazards":[],"routes":[]}""")
+        assertTrue(runCatching { GpsCommunity.validateCatalog("""{"schema":"mynavi-gps-community/v1","publication":"proposal","places":[],"hazards":[],"routes":[]}""") }.isFailure)
+        assertTrue(runCatching { GpsCommunity.validateCatalog("""{"schema":"mynavi-gps-community/v1","publication":"moderated","places":[{"id":"personal-record"}],"hazards":[],"routes":[]}""") }.isFailure)
+    }
     private val start = GpsPoint(52.0, 13.0)
     private val middle = GpsPoint(52.0, 13.005)
     private val end = GpsPoint(52.0, 13.01)

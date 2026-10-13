@@ -28,7 +28,7 @@ import java.util.concurrent.Executors
 /** Online maps and GPS guidance while this page is foreground. Community data is shared explicitly. */
 @Suppress("DEPRECATION")
 class OnlineMapPanel(context: Context, private val requestLocation: () -> Unit,
-    private val requestImport: () -> Unit = {}) : FrameLayout(context), LocationListener {
+    private val requestImport: () -> Unit = {}, private val requestExport: (String) -> Unit = {}) : FrameLayout(context), LocationListener {
     private fun dp(n: Int) = (n * resources.displayMetrics.density).toInt()
     private fun surface(dark: Boolean = false) = GradientDrawable().apply {
         setColor(if (dark) 0xFF0A263E.toInt() else 0xFFF7F9FC.toInt()); cornerRadius = dp(24).toFloat()
@@ -43,6 +43,9 @@ class OnlineMapPanel(context: Context, private val requestLocation: () -> Unit,
     }
     private val worker = Executors.newSingleThreadExecutor()
     private val library = GpsLibrary(context)
+    private val community = GpsCommunity(context)
+    private var syncingCommunity = false
+    private val communityStatus = label("Comunidade · GitHub", 11f)
     private val locationManager = context.getSystemService(LocationManager::class.java)
     private val message = label("Mapa online · a carregar…", 12f)
     private val summary = label("Explorar · MyNaviScooter", 19f)
@@ -120,7 +123,7 @@ class OnlineMapPanel(context: Context, private val requestLocation: () -> Unit,
         addView(controls, LayoutParams(-2, -2, Gravity.END or Gravity.CENTER_VERTICAL).apply { rightMargin = dp(12) })
         val bottom = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL; background = surface(); elevation = dp(5).toFloat(); setPadding(dp(14), dp(10), dp(14), dp(10))
-            addView(summary); addView(message); addView(actions)
+            addView(summary); addView(message); addView(communityStatus); addView(actions)
             summary.setOnClickListener { actions.visibility = if (actions.visibility == View.VISIBLE) View.GONE else View.VISIBLE }
         }
         fun row(vararg buttons: Button) { actions.addView(LinearLayout(context).apply { buttons.forEach {
@@ -128,6 +131,7 @@ class OnlineMapPanel(context: Context, private val requestLocation: () -> Unit,
         } }) }
         row(routeButton, navigateButton, button("Guardar") { saveSelected() })
         row(button("Reportar") { reportHazard() }, button("Biblioteca") { showLibrary() }, button("Mais") { moreOptions() })
+        row(button("Contribuir") { contributeMenu() }, button("Atualizar comunidade") { syncCommunity(true) })
         addView(bottom, LayoutParams(-1, -2, Gravity.BOTTOM).apply { leftMargin = dp(12); rightMargin = dp(12); bottomMargin = dp(38) })
         routeButton.isEnabled = false; navigateButton.isEnabled = false
     }
@@ -159,8 +163,23 @@ class OnlineMapPanel(context: Context, private val requestLocation: () -> Unit,
         if (!visible) {
             locationManager?.removeUpdates(this); speech?.stop(); keepScreenOn = false
             if (navigating) instruction.text = "Navegação em pausa · regressa à página GPS"
-        } else { keepScreenOn = navigating || recording; if (locating) locate() }
+        } else { keepScreenOn = navigating || recording; if (locating) locate(); syncCommunity(false) }
     }
+    private fun syncCommunity(force: Boolean) {
+        if (syncingCommunity || !community.shouldRefresh(force)) {
+            if (force) communityStatus.text = "Comunidade · aguarda antes de atualizar novamente"
+            return
+        }
+        syncingCommunity = true; communityStatus.text = "Comunidade · a consultar GitHub…"
+        worker.execute {
+            val result = runCatching { community.sync() }
+            post { syncingCommunity = false; if (!destroyed) result.onSuccess { count ->
+                communityStatus.text = if (count == 0) "Comunidade · ainda sem contribuições aprovadas" else "Comunidade · $count elementos aprovados · cópia local"
+                redrawLibrary()
+            }.onFailure { communityStatus.text = "GitHub indisponível · mantida a cópia local (${community.count()})" } }
+        }
+    }
+    private fun allHazards() = (library.hazards() + community.library.hazards()).distinctBy { it.id }
     private fun loadStyle() {
         styleReady = false; marker = null; destinationMarker = null; routeLine = null; dataMarkers.clear()
         map?.setStyle(if (dark) "https://tiles.openfreemap.org/styles/dark" else STYLE) { if (!destroyed) {
@@ -274,7 +293,7 @@ class OnlineMapPanel(context: Context, private val requestLocation: () -> Unit,
         } else if (progress.offRouteMeters <= 60 && progress.nextMeters <= 40 && progress.nextIndex != spokenNearStep) {
             speak(progress.nextInstruction); spokenNearStep = progress.nextIndex
         }
-        library.hazards().firstOrNull { it.id !in announced && System.currentTimeMillis() - it.created < 30L * 86400000 &&
+        allHazards().firstOrNull { it.id !in announced && System.currentTimeMillis() - it.created < 30L * 86400000 &&
             GpsGeometry.distance(it.point, location.point()) < 80 }?.let {
             announced.add(it.id); fail("Alerta próximo: ${it.kind}"); speak("Atenção, ${it.kind} próximo")
         }
@@ -323,8 +342,8 @@ class OnlineMapPanel(context: Context, private val requestLocation: () -> Unit,
     private fun redrawLibrary() {
         if (!styleReady) return
         dataMarkers.forEach { map?.removeMarker(it) }; dataMarkers.clear()
-        library.places().forEach { place -> map?.addMarker(MarkerOptions().position(place.point.latLng()).title("★ ${place.name}"))?.let { dataMarkers += it } }
-        library.hazards().filter { System.currentTimeMillis() - it.created < 30L * 86400000 }.forEach { hazard ->
+        (library.places() + community.library.places()).distinctBy { it.id }.forEach { place -> map?.addMarker(MarkerOptions().position(place.point.latLng()).title("★ ${place.name}"))?.let { dataMarkers += it } }
+        allHazards().filter { System.currentTimeMillis() - it.created < 30L * 86400000 }.forEach { hazard ->
             map?.addMarker(MarkerOptions().position(hazard.point.latLng()).title("⚠ ${hazard.kind}").snippet(hazard.note))?.let { dataMarkers += it }
         }
     }
@@ -337,23 +356,30 @@ class OnlineMapPanel(context: Context, private val requestLocation: () -> Unit,
         } } }.setNegativeButton("Cancelar", null).show()
     }
     private fun showLibrary() {
-        AlertDialog.Builder(context).setTitle("Biblioteca GPS · neste telemóvel").setItems(arrayOf("Locais guardados", "Trajetos guardados", "Trajetos recomendados", "Alertas", "Partilhar biblioteca", "Importar ficheiro")) { _, index -> when (index) {
+        AlertDialog.Builder(context).setTitle("Biblioteca GPS · pessoal e comunidade").setItems(arrayOf("Locais guardados", "Trajetos guardados", "Trajetos recomendados", "Alertas", "Partilhar biblioteca pessoal", "Importar ficheiro", "Contribuir no GitHub", "Atualizar comunidade")) { _, index -> when (index) {
             0 -> choosePlace(); 1 -> chooseSavedRoute(false); 2 -> chooseSavedRoute(true); 3 -> chooseHazard(); 4 -> shareLibrary(); 5 -> requestImport()
+            6 -> contributeMenu(); 7 -> syncCommunity(true)
         } }.setNegativeButton("Fechar", null).show()
     }
     private fun choosePlace() {
-        val places = library.places(); if (places.isEmpty()) { fail("Ainda não guardaste locais."); return }
-        AlertDialog.Builder(context).setTitle("Locais guardados").setItems(places.map { it.name }.toTypedArray()) { _, index ->
-            val place = places[index]; AlertDialog.Builder(context).setTitle(place.name).setItems(arrayOf("Ir para", "Apagar")) { _, action ->
-                if (action == 0) setDestination(place.point, place.name) else guard { library.remove("places", place.id); redrawLibrary(); fail("Local apagado.") }
+        val places = (library.places() + community.library.places()).distinctBy { it.id }; if (places.isEmpty()) { fail("Ainda não existem locais guardados ou aprovados."); return }
+        AlertDialog.Builder(context).setTitle("Locais guardados").setItems(places.map { if (it.id.startsWith("github:")) "Comunidade · ${it.name}" else it.name }.toTypedArray()) { _, index ->
+            val place = places[index]; val shared = place.id.startsWith("github:")
+            AlertDialog.Builder(context).setTitle(place.name).setItems(arrayOf("Ir para", if (shared) "Guardar cópia pessoal" else "Apagar", "Contribuir / corrigir no GitHub")) { _, action ->
+                when (action) {
+                    0 -> setDestination(place.point, place.name)
+                    1 -> guard { if (shared) library.addPlace(place.name, place.point) else library.remove("places", place.id); redrawLibrary(); fail("Biblioteca pessoal atualizada.") }
+                    2 -> contributeItem("places", place.id, shared)
+                }
             }.show()
         }.show()
     }
     private fun chooseSavedRoute(recommended: Boolean) {
-        val routes = library.routes().filter { it.recommended == recommended }
+        val routes = (library.routes() + community.library.routes()).distinctBy { it.id }.filter { it.recommended == recommended }
         if (routes.isEmpty()) { fail("Ainda não existem trajetos nesta lista. Guarda um percurso ou importa uma biblioteca."); return }
-        AlertDialog.Builder(context).setTitle(if (recommended) "Trajetos recomendados" else "Trajetos guardados").setItems(routes.map { it.name }.toTypedArray()) { _, index ->
-            val saved = routes[index]; AlertDialog.Builder(context).setTitle(saved.name).setItems(arrayOf("Mostrar no mapa", "Calcular rota até ao início", "Apagar")) { _, action -> when (action) {
+        AlertDialog.Builder(context).setTitle(if (recommended) "Trajetos recomendados" else "Trajetos guardados").setItems(routes.map { if (it.id.startsWith("github:")) "Comunidade · ${it.name}" else it.name }.toTypedArray()) { _, index ->
+            val saved = routes[index]; val shared = saved.id.startsWith("github:")
+            AlertDialog.Builder(context).setTitle(saved.name).setItems(arrayOf("Mostrar no mapa", "Calcular rota até ao início", if (shared) "Guardar cópia pessoal" else "Apagar", "Contribuir / corrigir no GitHub")) { _, action -> when (action) {
                 0 -> {
                     stopNavigation(false); routeGeneration++; destination = saved.points.last(); destinationName = saved.name
                     val meters = saved.points.zipWithNext().sumOf { (a, b) -> GpsGeometry.distance(a, b) }
@@ -363,16 +389,21 @@ class OnlineMapPanel(context: Context, private val requestLocation: () -> Unit,
                     map?.animateCamera(CameraUpdateFactory.newLatLngBounds(LatLngBounds.fromLatLngs(saved.points.map { it.latLng() }), dp(56)))
                 }
                 1 -> { setDestination(saved.points.first(), "Início · ${saved.name}"); calculateRoute() }
-                2 -> guard { library.remove("routes", saved.id); fail("Trajeto apagado.") }
+                2 -> guard { if (shared) library.addRoute(saved.name, saved.points, saved.recommended, saved.navigation) else library.remove("routes", saved.id); fail("Biblioteca pessoal atualizada.") }
+                3 -> contributeItem("routes", saved.id, shared)
             } }.show()
         }.show()
     }
     private fun chooseHazard() {
-        val hazards = library.hazards(); if (hazards.isEmpty()) { fail("Ainda não existem alertas locais."); return }
+        val hazards = allHazards(); if (hazards.isEmpty()) { fail("Ainda não existem alertas locais ou aprovados."); return }
         AlertDialog.Builder(context).setTitle("Alertas guardados").setItems(hazards.map { "${it.kind} · ${it.note.ifBlank { "Sem descrição" }}" }.toTypedArray()) { _, index ->
-            val hazard = hazards[index]; AlertDialog.Builder(context).setTitle(hazard.kind).setItems(arrayOf("Mostrar no mapa", "Já não existe · apagar")) { _, action ->
-                if (action == 0) { followLocation = false; map?.animateCamera(CameraUpdateFactory.newLatLngZoom(hazard.point.latLng(), 17.0)) }
-                else guard { library.remove("hazards", hazard.id); redrawLibrary(); fail("Alerta apagado.") }
+            val hazard = hazards[index]; val shared = hazard.id.startsWith("github:")
+            AlertDialog.Builder(context).setTitle(hazard.kind).setItems(arrayOf("Mostrar no mapa", if (shared) "Reportar correção no GitHub" else "Já não existe · apagar", "Contribuir no GitHub")) { _, action ->
+                when (action) {
+                    0 -> { followLocation = false; map?.animateCamera(CameraUpdateFactory.newLatLngZoom(hazard.point.latLng(), 17.0)) }
+                    1 -> if (shared) contributeItem("hazards", hazard.id, true) else guard { library.remove("hazards", hazard.id); redrawLibrary(); fail("Alerta apagado.") }
+                    2 -> contributeItem("hazards", hazard.id, shared)
+                }
             }.show()
         }.show()
     }
@@ -385,6 +416,49 @@ class OnlineMapPanel(context: Context, private val requestLocation: () -> Unit,
         }, "Partilhar locais, trajetos e alertas"))
     }
     fun importLibrary(text: String) = guard { val count = library.importJson(text); redrawLibrary(); fail("$count elementos importados para a biblioteca GPS.") }
+    private fun contributeMenu() {
+        AlertDialog.Builder(context).setTitle("Contribuir para a comunidade")
+            .setItems(arrayOf("Enviar alerta guardado", "Enviar local guardado", "Enviar trajeto recomendado", "Abrir formulário GitHub")) { _, choice ->
+                val key = when (choice) { 0 -> "hazards"; 1 -> "places"; else -> "routes" }
+                if (choice == 3) {
+                    openContribution("Contribuição GPS", "Descreve o perigo, local ou trajeto. Inclui as coordenadas ou anexa o JSON exportado pela app.", null)
+                } else {
+                    val root = org.json.JSONObject(library.exportJson()); val items = root.getJSONArray(key)
+                    val selected = (0 until items.length()).map { items.getJSONObject(it) }
+                        .filter { key != "routes" || it.optBoolean("recommended") }
+                    if (selected.isEmpty()) fail("Guarda primeiro um elemento pessoal desse tipo. Para trajetos, usa Guardar → Recomendar trajeto.")
+                    else AlertDialog.Builder(context).setTitle("Escolher contribuição")
+                        .setItems(selected.map { it.optString("name").ifBlank { it.optString("kind") + " · " + it.optString("note") } }.toTypedArray()) { _, index ->
+                            contributeItem(key, selected[index].getString("id"), false)
+                        }.setNegativeButton("Cancelar", null).show()
+                }
+            }.setNegativeButton("Fechar", null).show()
+    }
+    private fun contributeItem(key: String, id: String, shared: Boolean) = guard {
+        val source = if (shared) community.library else library
+        val values = org.json.JSONObject(source.exportJson()).getJSONArray(key)
+        val item = (0 until values.length()).map { values.getJSONObject(it) }.first { it.getString("id") == id }
+        val packageJson = org.json.JSONObject().put("schema", "mynavi-gps-community/v1")
+            .put("places", org.json.JSONArray()).put("hazards", org.json.JSONArray()).put("routes", org.json.JSONArray())
+            .put(key, org.json.JSONArray().put(item)).toString(2)
+        val title = item.optString("name").ifBlank { item.optString("kind") }.take(100)
+        val summary = if (shared) "Correção de elemento aprovado: `$id`.\n\nDescreve o que deve ser corrigido ou removido."
+            else "Proposta de ${when (key) { "hazards" -> "alerta"; "places" -> "local"; else -> "trajeto recomendado" }}: $title."
+        val body = summary + "\n\n" + if (packageJson.length <= 900) "```json\n$packageJson\n```"
+            else "Guarda o ficheiro JSON pelo botão da app e anexa-o nesta Issue. A contribuição ainda aguarda revisão."
+        openContribution(if (shared) "Correção · $title" else title, body, packageJson)
+    }
+    private fun openContribution(title: String, body: String, json: String?) {
+        val url = Uri.parse(GpsCommunity.ISSUES_URL).buildUpon()
+            .appendQueryParameter("template", "gps_contribution.md")
+            .appendQueryParameter("title", "[GPS] $title").appendQueryParameter("body", body).build()
+        val builder = AlertDialog.Builder(context).setTitle("Enviar proposta ao GitHub")
+            .setMessage("Vai abrir uma Issue pública. O texto inclui os dados deste elemento; para um trajeto, o ficheiro inclui o seu percurso. Precisas de entrar na tua conta GitHub e confirmar o envio. Só aparecerá no catálogo após revisão.\n\nNão são enviados serial, credenciais ou telemetria da scooter.")
+            .setPositiveButton("Abrir GitHub") { _, _ -> guard { context.startActivity(Intent(Intent.ACTION_VIEW, url)) } }
+            .setNegativeButton("Cancelar", null)
+        json?.let { builder.setNeutralButton("Guardar JSON") { _, _ -> requestExport(it); fail("Guarda o JSON e volta a Contribuir para o anexar à Issue.") } }
+        builder.show()
+    }
     private fun toggleRecording() {
         if (recording || track.isNotEmpty()) {
             recording = false; keepScreenOn = navigating
@@ -410,7 +484,7 @@ class OnlineMapPanel(context: Context, private val requestLocation: () -> Unit,
             }
             5 -> loadStyle(); 6 -> showLibrary()
             7 -> AlertDialog.Builder(context).setTitle("GPS MyNaviScooter")
-                .setMessage("Mapas: OpenFreeMap/OpenStreetMap. Rotas: OSRM/FOSSGIS, perfil de bicicleta. Este perfil não valida as regras locais para scooters. Pesquisa: serviço de endereços do Android.\n\nOs pedidos de rotas enviam origem e destino ao fornecedor. Biblioteca e viagens ficam neste telemóvel até as partilhares. Alertas são observações dos utilizadores; ainda não existe sincronização automática da comunidade.\n\nOrientação e registo param ao sair da página GPS ou colocar a app em segundo plano.")
+                    .setMessage("Mapas: OpenFreeMap/OpenStreetMap. Rotas: OSRM/FOSSGIS, perfil de bicicleta. Este perfil não valida as regras locais para scooters. Pesquisa: serviço de endereços do Android.\n\nO GitHub fornece o catálogo público aprovado, guardado em cópia local e atualizado periodicamente. Propostas são enviadas numa Issue pela tua conta GitHub e revistas antes de publicação. Os teus dados pessoais ficam separados; só partilhas o elemento escolhido.\n\nOs pedidos de rotas enviam origem e destino ao fornecedor. Orientação e registo param ao sair da página GPS ou colocar a app em segundo plano.")
                 .setNeutralButton("Corrigir mapa") { _, _ -> context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.openstreetmap.org/fixthemap"))) }
                 .setPositiveButton("Fechar", null).show()
         } }.setNegativeButton("Fechar", null).show()

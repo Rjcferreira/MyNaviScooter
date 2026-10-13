@@ -10,8 +10,8 @@ data class GpsHazard(val id: String, val kind: String, val point: GpsPoint, val 
 data class GpsSavedRoute(val id: String, val name: String, val points: List<GpsPoint>, val recommended: Boolean, val navigation: GpsRoute? = null)
 
 /** Private on-device data; sharing/import is explicit, never an automatic public upload. */
-class GpsLibrary(context: Context) {
-    private val prefs = context.getSharedPreferences("gps_library_v1", Context.MODE_PRIVATE)
+class GpsLibrary(context: Context, preferencesName: String = "gps_library_v1") {
+    private val prefs = context.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
     private var root = runCatching { JSONObject(prefs.getString("data", null) ?: "{}") }.getOrDefault(JSONObject())
     private var committed = root.toString()
     private fun array(key: String) = root.optJSONArray(key) ?: JSONArray()
@@ -74,11 +74,11 @@ class GpsLibrary(context: Context) {
     }
     fun exportJson(): String = JSONObject(root.toString()).put("schema", "mynavi-gps-community/v1")
         .put("sharedAtUtc", CaptureReport.nowUtc()).toString(2)
-    fun importJson(text: String): Int {
+    fun importJson(text: String, replace: Boolean = false): Int {
         require(text.length <= 2_000_000) { "Ficheiro demasiado grande." }
         val incoming = JSONObject(text)
         require(incoming.optString("schema") == "mynavi-gps-community/v1") { "Formato GPS incompatível." }
-        val merged = JSONObject(root.toString()); var imported = 0
+        val merged = if (replace) JSONObject() else JSONObject(root.toString()); var imported = 0
         for ((key, limit) in listOf("places" to 200, "hazards" to 500, "routes" to 30)) {
             val values = merged.optJSONArray(key) ?: JSONArray()
             val ids = (0 until values.length()).map { values.getJSONObject(it).getString("id") }.toMutableSet()

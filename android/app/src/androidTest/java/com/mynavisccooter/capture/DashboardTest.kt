@@ -71,6 +71,9 @@ class DashboardTest {
         }
         onView(withText("Pesquisar local ou endereço")).check(androidx.test.espresso.assertion.ViewAssertions.doesNotExist())
         onView(withHint("Pesquisar local ou endereço")).check(matches(isDisplayed()))
+        onView(withText("Contribuir")).perform(click())
+        onView(withText("Abrir formulário GitHub")).check(matches(isDisplayed()))
+        onView(withText("Fechar")).perform(click())
         onView(withText("Percurso")).check(matches(org.hamcrest.Matchers.not(isEnabled())))
         onView(withText("Biblioteca")).perform(click())
         onView(withText("Locais guardados")).check(matches(isDisplayed()))

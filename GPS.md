@@ -16,10 +16,11 @@ Provider policy: https://routing.openstreetmap.de/about.html. Required attributi
 - Local reports: pothole, obstacle, uneven surface, elevation and dangerous segment. Reports within 80 m can be announced during navigation. Reports older than 30 days are excluded from map/proximity notifications; stored records can still be inspected/deleted.
 - Foreground GPS journey recording, saving its geometry in the library.
 - Explicit JSON sharing through Android FileProvider and bounded import, coordinate validation, deduplication and atomic batch validation.
+- Public GitHub community catalog, a separate local snapshot, periodic/manual refresh and browser-based moderated Issue contributions. See `community/README.md`.
 
 ## Limits
 
-Guidance and recording pause when leaving the GPS page or putting the app in the background. A foreground navigation service and persisted unfinished recordings are future work. Recorded tracks have no turn instructions; routing-engine routes preserve instructions. Recommended routes and reports are local/exchanged by file, not automatically synchronized: there is no community backend configured. No live traffic, terrain-aware scooter restrictions or automatic detour around user reports is claimed. Device geocoder, TTS language availability, satellite signal and online providers affect operation.
+Guidance and recording pause when leaving the GPS page or putting the app in the background. A foreground navigation service and persisted unfinished recordings are future work. Recorded tracks have no turn instructions; routing-engine routes preserve instructions. Personal data can be exchanged by file; the public community catalog is periodically downloaded from GitHub after maintainer review. There is no real-time database or automatic publication of Issue submissions. No live traffic, terrain-aware scooter restrictions or automatic detour around user reports is claimed. Device geocoder, TTS language availability, satellite signal and online providers affect operation.
 
 ## Verification
 
