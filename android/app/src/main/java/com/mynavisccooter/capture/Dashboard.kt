@@ -12,6 +12,12 @@ import androidx.viewpager2.widget.ViewPager2
 
 /** Native dashboard: unavailable telemetry is never represented as measured data. */
 class Dashboard(private val context: Context) {
+    private var gpsPanel: OnlineMapPanel? = null
+    private var gpsSelected = false
+    fun resumeMap() { gpsPanel?.show(gpsSelected) }
+    fun pauseMap() { gpsPanel?.show(false) }
+    fun locateOnMap() { gpsPanel?.locate() }
+    fun destroyMap() { gpsPanel?.destroy(); gpsPanel = null; gpsSelected = false }
     private val ink = Color.rgb(4, 16, 27)
     private val panel = Color.rgb(12, 29, 43)
     private val muted = Color.rgb(153, 177, 197)
@@ -54,7 +60,8 @@ class Dashboard(private val context: Context) {
         layoutParams = LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6); bottomMargin = dp(8) }
         setOnClickListener { action() }
     }
-    fun create(connectionOnly: Boolean = false, onScan: () -> Unit, onRecover: () -> Unit, onDeepScan: () -> Unit, onApply: () -> Unit, onRestore: () -> Unit, onExport: () -> Unit, onSettings: () -> Unit, onLive: () -> Unit): View {
+    fun create(connectionOnly: Boolean = false, onScan: () -> Unit, onRecover: () -> Unit, onDeepScan: () -> Unit, onApply: () -> Unit, onRestore: () -> Unit, onExport: () -> Unit, onSettings: () -> Unit, onLive: () -> Unit, onRequestLocation: () -> Unit): View {
+        destroyMap()
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL; setPadding(dp(22), dp(20), dp(22), dp(24)); setBackgroundColor(ink)
         }
@@ -146,10 +153,7 @@ class Dashboard(private val context: Context) {
             (view.parent as? ViewGroup)?.removeView(view)
             telemetry.addView(view)
         }
-        val gps = card().apply {
-            addView(label("Navegação GPS", 24f, orange))
-            addView(label("Mapa, trajetos e alertas da comunidade em desenvolvimento.", 15f, muted))
-        }
+        val gps = OnlineMapPanel(context, onRequestLocation).also { gpsPanel = it }
         val reports = card().apply {
             (export.parent as? ViewGroup)?.removeView(export)
             addView(label("Relatórios", 24f))
@@ -179,7 +183,11 @@ class Dashboard(private val context: Context) {
             }
         }
         pager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
-            override fun onPageSelected(position: Int) { title.text = "${names[position]} · ${position + 1}/${names.size}" }
+            override fun onPageSelected(position: Int) {
+                title.text = "${names[position]} · ${position + 1}/${names.size}"
+                gpsSelected = position == 1
+                gpsPanel?.show(gpsSelected)
+            }
         })
         root.addView(pager, LinearLayout.LayoutParams(-1, 0, 1f))
         menu.setOnClickListener {

@@ -60,6 +60,7 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
             onApply = { confirmOperation(RequestedOperation.APPLY_25_30) },
             onRestore = { confirmOperation(RequestedOperation.RESTORE_INITIAL) },
             onExport = { exportReport() }, onSettings = { settings() },
+            onRequestLocation = { ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), 43) },
             onLive = {
                 if (liveRunning) ble.stopTelemetry()
                 else if (!busy) selected?.let {
@@ -237,9 +238,16 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
     private fun requestPermissions() { ActivityCompat.requestPermissions(this, permissions(), 41) }
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 43) {
+            if (grantResults.any { it == PackageManager.PERMISSION_GRANTED }) dashboard.locateOnMap()
+            else Toast.makeText(this, "O mapa continua disponível sem a tua localização.", Toast.LENGTH_LONG).show()
+            return
+        }
         if (requestCode == 41 && permissionsReady()) ble.startScan()
         else dashboard.status.text = "Permite o acesso Bluetooth para procurar a scooter."
     }
 
-    override fun onDestroy() { pairingDialog?.dismiss(); ble.close(); super.onDestroy() }
+    override fun onResume() { super.onResume(); if (::dashboard.isInitialized) dashboard.resumeMap() }
+    override fun onPause() { if (::dashboard.isInitialized) dashboard.pauseMap(); super.onPause() }
+    override fun onDestroy() { dashboard.destroyMap(); pairingDialog?.dismiss(); ble.close(); super.onDestroy() }
 }
