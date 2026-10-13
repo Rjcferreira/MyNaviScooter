@@ -13,6 +13,9 @@ android {
         targetSdk = 35
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         versionCode = 100 + (System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 0)
+        providers.gradleProperty("phoneAbi").orNull?.let { phoneAbi ->
+            ndk { abiFilters.add(phoneAbi) }
+        }
         versionName = "0.2.0-review.${System.getenv("GITHUB_RUN_NUMBER") ?: "local"}"
         buildConfigField("String", "REVISION", "\"${System.getenv("GITHUB_SHA") ?: "local"}\"")
     }
