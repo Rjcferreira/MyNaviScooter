@@ -16,13 +16,14 @@ import java.security.SecureRandom
 
 data class ScannedScooter(val device: BluetoothDevice, val name: String, val rssi: Int,
     val manufacturerData: Map<String, String>, val model: ModelProfile)
-enum class RequestedOperation { CAPTURE, DEEP_SCAN, APPLY_25_30, RESTORE_INITIAL }
+enum class RequestedOperation { CAPTURE, DEEP_SCAN, LIVE, APPLY_25_30, RESTORE_INITIAL }
 
 /** Serialized diagnostic connection with explicitly selected initial pairing. */
 @Suppress("DEPRECATION", "MissingPermission")
 @android.annotation.SuppressLint("MissingPermission")
 class BleCaptureManager(private val context: Context, private val listener: Listener) {
     interface Listener {
+        fun onTelemetry(value: TelemetrySnapshot)
         fun onStage(stage: String)
         fun onStatus(message: String)
         fun onDevicesChanged(devices: List<ScannedScooter>)
@@ -438,7 +439,7 @@ class BleCaptureManager(private val context: Context, private val listener: List
             authNote = "AUTH aceite; estado inicial cifrado e verificado localmente."
             finish("initial_state_saved"); return
         }
-        if (requestedOperation == RequestedOperation.DEEP_SCAN) {
+        if (requestedOperation == RequestedOperation.DEEP_SCAN || requestedOperation == RequestedOperation.LIVE) {
             beginDeepScan(g)
             return
         }
@@ -537,6 +538,17 @@ class BleCaptureManager(private val context: Context, private val listener: List
         timeout?.let(main::removeCallbacks)
         val spec = Zt3DeepScanPlan.documented.getOrNull(deepScanIndex)
         if (spec == null) {
+            if (requestedOperation == RequestedOperation.LIVE) {
+                listener.onTelemetry(Zt3TelemetryDecoder.decode(deepScanResults))
+                deepScanIndex = 0
+                main.postDelayed({
+                    if (gatt === g && !reported && phase == "deep_scan") {
+                        deepScanResults.clear()
+                        sendNextDeepScanRead(g)
+                    }
+                }, 1000L)
+                return
+            }
             finish(if (deepScanTimeouts.isEmpty()) "deep_scan_complete" else "deep_scan_partial")
             return
         }
@@ -727,13 +739,14 @@ class BleCaptureManager(private val context: Context, private val listener: List
                 authAttempted, authenticated, authNote,
                 "PRE_COMM and AUTH diagnostics. SET_PWD only after owner selects pairing. Raw pairing traffic is omitted."),
             initialState.toList(),
-            if (requestedOperation == RequestedOperation.DEEP_SCAN) DeepScanCapture(results = deepScanResults.toList(), timedOut = deepScanTimeouts.toList()) else null,
+            if (requestedOperation == RequestedOperation.DEEP_SCAN || requestedOperation == RequestedOperation.LIVE) DeepScanCapture(results = deepScanResults.toList(), timedOut = deepScanTimeouts.toList()) else null,
             mapOf("readOnly" to (!pairingWriteAttempted && !configurationWritesPerformed), "configurationWritesPerformed" to configurationWritesPerformed,
                 "firmwareFlashed" to false, "pairingWriteAttempted" to pairingWriteAttempted,
                 "pairingAcceptedByScooter" to pairingAccepted),
             events.toList(), outcome
         ))
     }
+    fun stopTelemetry() { if (requestedOperation == RequestedOperation.LIVE && !reported) finish("telemetry_stopped") }
     private fun hasScanPermission() = ContextCompat.checkSelfPermission(context,
         if (Build.VERSION.SDK_INT >= 31) Manifest.permission.BLUETOOTH_SCAN else Manifest.permission.ACCESS_FINE_LOCATION
     ) == PackageManager.PERMISSION_GRANTED

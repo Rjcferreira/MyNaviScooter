@@ -26,6 +26,7 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
     private var latestReport: CaptureReport? = null
     private var selected: ScannedScooter? = null
     private var busy = false
+    private var liveRunning = false
     private lateinit var container: FrameLayout
     private var functionsVisible = false
 
@@ -58,7 +59,15 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
             onDeepScan = { confirmDeepScan() },
             onApply = { confirmOperation(RequestedOperation.APPLY_25_30) },
             onRestore = { confirmOperation(RequestedOperation.RESTORE_INITIAL) },
-            onExport = { exportReport() }, onSettings = { settings() }
+            onExport = { exportReport() }, onSettings = { settings() },
+            onLive = {
+                if (liveRunning) ble.stopTelemetry()
+                else if (!busy) selected?.let {
+                    liveRunning = true
+                    dashboard.live.text = "Parar telemetria"
+                    connect(it, false, RequestedOperation.LIVE)
+                }
+            }
         )
         container.removeAllViews(); container.addView(view)
     }
@@ -111,6 +120,10 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
     }
 
     override fun onStage(stage: String) { runOnUiThread { dashboard.stage(stage) } }
+    override fun onTelemetry(value: TelemetrySnapshot) { runOnUiThread {
+        dashboard.showTelemetry(value)
+        dashboard.badge.text = "BLUETOOTH · Telemetria em direto"
+    } }
     override fun onStatus(message: String) { runOnUiThread { dashboard.status.text = message } }
     override fun onDevicesChanged(devices: List<ScannedScooter>) {
         runOnUiThread {
@@ -126,6 +139,7 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
         runOnUiThread {
             latestReport = report
             busy = false
+            liveRunning = false
             pairingDialog?.dismiss(); pairingDialog = null
             val ok = report.protocolProbe?.authenticated == true
             if (ok) showMainExperience()

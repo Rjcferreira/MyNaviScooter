@@ -6,6 +6,9 @@ import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
 import android.view.View
 import android.widget.*
+import android.view.ViewGroup
+import androidx.recyclerview.widget.RecyclerView
+import androidx.viewpager2.widget.ViewPager2
 
 /** Native dashboard: unavailable telemetry is never represented as measured data. */
 class Dashboard(private val context: Context) {
@@ -23,6 +26,7 @@ class Dashboard(private val context: Context) {
     lateinit var applyProfile: Button
     lateinit var restoreProfile: Button
     lateinit var deepScan: Button
+    lateinit var live: Button
     private lateinit var capabilityNotice: TextView
     private lateinit var speedDial: SpeedDial
     private lateinit var batteryValue: TextView
@@ -50,7 +54,7 @@ class Dashboard(private val context: Context) {
         layoutParams = LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6); bottomMargin = dp(8) }
         setOnClickListener { action() }
     }
-    fun create(connectionOnly: Boolean = false, onScan: () -> Unit, onRecover: () -> Unit, onDeepScan: () -> Unit, onApply: () -> Unit, onRestore: () -> Unit, onExport: () -> Unit, onSettings: () -> Unit): View {
+    fun create(connectionOnly: Boolean = false, onScan: () -> Unit, onRecover: () -> Unit, onDeepScan: () -> Unit, onApply: () -> Unit, onRestore: () -> Unit, onExport: () -> Unit, onSettings: () -> Unit, onLive: () -> Unit): View {
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL; setPadding(dp(22), dp(20), dp(22), dp(24)); setBackgroundColor(ink)
         }
@@ -58,6 +62,13 @@ class Dashboard(private val context: Context) {
         brand.addView(label("MyNavi", 28f).apply { setTypeface(null, Typeface.BOLD) })
         brand.addView(label("Scooter", 28f, orange).apply { setTypeface(null, Typeface.BOLD) })
         root.addView(brand)
+        val menu = label("⋮", 30f).apply {
+            gravity = Gravity.CENTER
+            contentDescription = "Atalhos das funções"
+            isClickable = true
+        }
+        brand.addView(Space(context), LinearLayout.LayoutParams(0, 1, 1f))
+        brand.addView(menu, LinearLayout.LayoutParams(dp(48), dp(48)))
         root.addView(label("MAIS LIBERDADE EM CADA TRAJETO", 10f, muted).apply { letterSpacing = .18f })
         badge = label("BLUETOOTH  ·  Desligado", 12f, muted)
         root.addView(badge)
@@ -100,6 +111,7 @@ class Dashboard(private val context: Context) {
         connection.visibility = if (connectionOnly) View.VISIBLE else View.GONE
         root.addView(connection)
         if (connectionOnly) {
+            menu.setOnClickListener { onSettings() }
             root.addView(label("A app só abrirá as funções depois de confirmar a autenticação e proteger o estado inicial.", 12f, muted))
             return ScrollView(context).apply { isFillViewport = true; setBackgroundColor(ink); addView(root) }
         }
@@ -126,8 +138,64 @@ class Dashboard(private val context: Context) {
         root.addView(export)
         root.addView(button("Configurações e diagnóstico", false, onSettings))
         root.addView(label("MyNaviScooter  /  ${BuildConfig.VERSION_NAME}\nNavegação GPS em desenvolvimento", 11f, muted))
-        return ScrollView(context).apply { isFillViewport = true; setBackgroundColor(ink); addView(root) }
+        val names = listOf("Telemetria", "GPS", "Diagnóstico", "Perfis", "Relatórios")
+        val telemetry = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+        live = button("Iniciar telemetria contínua", true, onLive)
+        telemetry.addView(live)
+        listOf<View>(speedDial, statsView()).forEach { view ->
+            (view.parent as? ViewGroup)?.removeView(view)
+            telemetry.addView(view)
+        }
+        val gps = card().apply {
+            addView(label("Navegação GPS", 24f, orange))
+            addView(label("Mapa, trajetos e alertas da comunidade em desenvolvimento.", 15f, muted))
+        }
+        val reports = card().apply {
+            (export.parent as? ViewGroup)?.removeView(export)
+            addView(label("Relatórios", 24f))
+            addView(export)
+            addView(button("Configurações e diagnóstico", false, onSettings))
+        }
+        val contents = listOf<View>(telemetry, gps, diagnostics, profile, reports)
+        contents.forEach { (it.parent as? ViewGroup)?.removeView(it) }
+        // Keep the shared header and connection status above all function pages.
+        while (root.childCount > 6) root.removeViewAt(root.childCount - 1)
+        val title = label(names.first(), 22f, orange)
+        root.addView(title)
+        root.addView(label("Desliza para mudar de função", 12f, muted))
+        val pager = ViewPager2(context)
+        pager.adapter = object : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
+            override fun getItemCount() = contents.size
+            override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder =
+                object : RecyclerView.ViewHolder(FrameLayout(context).apply {
+                    layoutParams = ViewGroup.LayoutParams(-1, -1)
+                }) {}
+            override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
+                val frame = holder.itemView as FrameLayout
+                frame.removeAllViews()
+                val content = contents[position]
+                (content.parent as? ViewGroup)?.removeView(content)
+                frame.addView(ScrollView(context).apply { addView(content) })
+            }
+        }
+        pager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
+            override fun onPageSelected(position: Int) { title.text = "${names[position]} · ${position + 1}/${names.size}" }
+        })
+        root.addView(pager, LinearLayout.LayoutParams(-1, 0, 1f))
+        menu.setOnClickListener {
+            PopupMenu(context, menu).apply {
+                names.forEachIndexed { index, name -> this.menu.add(0, index, index, name) }
+                this.menu.add(0, 100, 100, "Configurações")
+                setOnMenuItemClickListener { item ->
+                    if (item.itemId == 100) onSettings() else pager.setCurrentItem(item.itemId, true)
+                    true
+                }
+                show()
+            }
+        }
+        return root
     }
+    private fun statsView(): View = batteryValue.parent.parent as View
     fun select(name: String) { selected.text = name }
     fun showMutationCapability(capability: MutationCapability, controlsVisible: Boolean) {
         capabilityNotice.text = "${capability.title}\n${capability.detail}"
