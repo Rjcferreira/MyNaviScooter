@@ -70,7 +70,10 @@ class Dashboard(private val context: Context) {
         brand.addView(label("MyNavi", 28f).apply { setTypeface(null, Typeface.BOLD) })
         brand.addView(label("Scooter", 28f, orange).apply { setTypeface(null, Typeface.BOLD) })
         root.addView(brand)
-        val menu = label("⋮", 30f).apply {
+        val menu = Button(context).apply {
+            text = "⋮"; textSize = 30f; setTextColor(white)
+            minWidth = 0; minimumWidth = 0; minHeight = 0; minimumHeight = 0
+            setPadding(0, 0, 0, 0)
             gravity = Gravity.CENTER
             contentDescription = "Atalhos das funções"
             isClickable = true

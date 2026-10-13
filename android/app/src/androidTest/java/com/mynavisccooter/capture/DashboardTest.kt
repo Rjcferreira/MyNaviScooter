@@ -61,7 +61,9 @@ class DashboardTest {
             })
         }
         onView(withText("Boa viagem!")).check(matches(isDisplayed()))
+        screenshot("telemetry-fullscreen")
         onView(withContentDescription("Atalhos das funções")).perform(click())
+        screenshot("function-menu")
         onView(withText("GPS")).perform(click())
         onView(withText("Boa viagem!")).check { view, _ ->
             org.junit.Assert.assertTrue(view == null || !view.getGlobalVisibleRect(android.graphics.Rect()))
