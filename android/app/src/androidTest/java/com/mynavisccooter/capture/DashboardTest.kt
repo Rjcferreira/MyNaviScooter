@@ -53,13 +53,17 @@ class DashboardTest {
         onView(withText("Boa viagem!")).check(matches(isDisplayed()))
         onView(withContentDescription("Atalhos das funções")).perform(click())
         onView(withText("GPS")).perform(click())
-        onView(withText("Boa viagem!")).check(matches(org.hamcrest.Matchers.not(isDisplayed())))
+        onView(withText("Boa viagem!")).check { view, _ ->
+            org.junit.Assert.assertTrue(view == null || !view.getGlobalVisibleRect(android.graphics.Rect()))
+        }
         onView(withText("Pesquisar local ou endereço")).check(androidx.test.espresso.assertion.ViewAssertions.doesNotExist())
         onView(withHint("Pesquisar local ou endereço")).check(matches(isDisplayed()))
         screenshot("gps-fullscreen")
         onView(withContentDescription("Atalhos das funções")).perform(click())
         onView(withText("Perfis")).perform(click())
-        onView(withText("Boa viagem!")).check(matches(org.hamcrest.Matchers.not(isDisplayed())))
+        onView(withText("Boa viagem!")).check { view, _ ->
+            org.junit.Assert.assertTrue(view == null || !view.getGlobalVisibleRect(android.graphics.Rect()))
+        }
         onView(withText("Original")).check(matches(isDisplayed()))
         screenshot("profiles-fullscreen")
     }
