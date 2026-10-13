@@ -38,6 +38,7 @@ class Dashboard(private val context: Context) {
     private lateinit var batteryValue: TextView
     private lateinit var rangeValue: TextView
     private lateinit var telemetryDetail: TextView
+    private lateinit var telemetryStats: View
     private lateinit var steps: TextView
     private lateinit var selected: TextView
     fun dp(n: Int) = (n * context.resources.displayMetrics.density).toInt()
@@ -86,6 +87,7 @@ class Dashboard(private val context: Context) {
             speedDial = SpeedDial(context)
             root.addView(speedDial, LinearLayout.LayoutParams(-1, dp(265)))
             val stats = card()
+            telemetryStats = stats
             val statsRow = LinearLayout(context)
             listOf("— %" to "BATERIA", "— km" to "AUTONOMIA").forEachIndexed { index, (value, caption) ->
                 val column = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
@@ -147,9 +149,15 @@ class Dashboard(private val context: Context) {
         root.addView(label("MyNaviScooter  /  ${BuildConfig.VERSION_NAME}\nNavegação GPS em desenvolvimento", 11f, muted))
         val names = listOf("Telemetria", "GPS", "Diagnóstico", "Perfis", "Relatórios")
         val telemetry = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+        // The entire identity header belongs to telemetry, never to the pager host.
+        repeat(5) {
+            val header = root.getChildAt(0)
+            root.removeView(header)
+            telemetry.addView(header)
+        }
         live = button("Iniciar telemetria contínua", true, onLive)
         telemetry.addView(live)
-        listOf<View>(speedDial, statsView()).forEach { view ->
+        listOf<View>(speedDial, telemetryStats).forEach { view ->
             (view.parent as? ViewGroup)?.removeView(view)
             telemetry.addView(view)
         }
@@ -162,11 +170,11 @@ class Dashboard(private val context: Context) {
         }
         val contents = listOf<View>(telemetry, gps, diagnostics, profile, reports)
         contents.forEach { (it.parent as? ViewGroup)?.removeView(it) }
-        // Keep the shared header and connection status above all function pages.
-        while (root.childCount > 6) root.removeViewAt(root.childCount - 1)
-        val title = label(names.first(), 22f, orange)
-        root.addView(title)
-        root.addView(label("Desliza para mudar de função", 12f, muted))
+        root.removeAllViews()
+        root.setPadding(0, 0, 0, 0)
+        listOf(telemetry, diagnostics, profile, reports).forEach {
+            it.setPadding(dp(22), dp(60), dp(22), dp(24))
+        }
         val pager = ViewPager2(context)
         pager.adapter = object : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
             override fun getItemCount() = contents.size
@@ -179,17 +187,25 @@ class Dashboard(private val context: Context) {
                 frame.removeAllViews()
                 val content = contents[position]
                 (content.parent as? ViewGroup)?.removeView(content)
-                frame.addView(ScrollView(context).apply { addView(content) })
+                if (position == 1) frame.addView(content, FrameLayout.LayoutParams(-1, -1))
+                else frame.addView(ScrollView(context).apply { addView(content) })
             }
         }
         pager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
             override fun onPageSelected(position: Int) {
-                title.text = "${names[position]} · ${position + 1}/${names.size}"
                 gpsSelected = position == 1
                 gpsPanel?.show(gpsSelected)
             }
         })
-        root.addView(pager, LinearLayout.LayoutParams(-1, 0, 1f))
+        val host = FrameLayout(context).apply {
+            setBackgroundColor(ink)
+            addView(pager, FrameLayout.LayoutParams(-1, -1))
+            (menu.parent as? ViewGroup)?.removeView(menu)
+            menu.background = background(panel)
+            addView(menu, FrameLayout.LayoutParams(dp(48), dp(48), Gravity.TOP or Gravity.END).apply {
+                topMargin = dp(8); rightMargin = dp(12)
+            })
+        }
         menu.setOnClickListener {
             PopupMenu(context, menu).apply {
                 names.forEachIndexed { index, name -> this.menu.add(0, index, index, name) }
@@ -201,9 +217,8 @@ class Dashboard(private val context: Context) {
                 show()
             }
         }
-        return root
+        return host
     }
-    private fun statsView(): View = batteryValue.parent.parent as View
     fun select(name: String) { selected.text = name }
     fun showMutationCapability(capability: MutationCapability, controlsVisible: Boolean) {
         capabilityNotice.text = "${capability.title}\n${capability.detail}"
