@@ -49,11 +49,12 @@ class DashboardTest {
         activity.scenario.onActivity { host ->
             val dashboard = Dashboard(host)
             host.setContentView(android.widget.FrameLayout(host).apply {
+                setPadding(0, dashboard.dp(40), 0, dashboard.dp(24))
                 // Mirror MainActivity's inset-aware container so the menu is
                 // not underneath the emulator's status bar.
                 androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(this) { view, insets ->
                     val bars = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars())
-                    view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+                    view.setPadding(bars.left, maxOf(bars.top, dashboard.dp(40)), bars.right, maxOf(bars.bottom, dashboard.dp(24)))
                     insets
                 }
                 addView(dashboard.create(false, {}, {}, {}, {}, {}, {}, {}, {}, {}))
