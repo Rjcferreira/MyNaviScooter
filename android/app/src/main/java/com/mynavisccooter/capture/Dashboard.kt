@@ -202,20 +202,17 @@ class Dashboard(private val context: Context) {
             addView(pager, FrameLayout.LayoutParams(-1, -1))
             (menu.parent as? ViewGroup)?.removeView(menu)
             menu.background = background(panel)
+            menu.elevation = dp(16).toFloat()
             addView(menu, FrameLayout.LayoutParams(dp(48), dp(48), Gravity.TOP or Gravity.END).apply {
                 topMargin = dp(8); rightMargin = dp(12)
             })
         }
         menu.setOnClickListener {
-            PopupMenu(context, menu).apply {
-                names.forEachIndexed { index, name -> this.menu.add(0, index, index, name) }
-                this.menu.add(0, 100, 100, "Configurações")
-                setOnMenuItemClickListener { item ->
-                    if (item.itemId == 100) onSettings() else pager.setCurrentItem(item.itemId, true)
-                    true
-                }
-                show()
-            }
+            androidx.appcompat.app.AlertDialog.Builder(context)
+                .setTitle("Ir para")
+                .setItems((names + "Configurações").toTypedArray()) { _, index ->
+                    if (index == names.size) onSettings() else pager.setCurrentItem(index, true)
+                }.setNegativeButton("Fechar", null).show()
         }
         return host
     }
