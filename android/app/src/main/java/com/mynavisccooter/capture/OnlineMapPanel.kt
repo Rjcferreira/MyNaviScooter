@@ -18,6 +18,7 @@ import androidx.core.content.FileProvider
 import org.maplibre.android.MapLibre
 import org.maplibre.android.maps.*
 import org.maplibre.android.camera.CameraUpdateFactory
+import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.geometry.*
 import org.maplibre.android.annotations.*
 import java.io.File
