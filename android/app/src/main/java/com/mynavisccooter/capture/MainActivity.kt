@@ -178,6 +178,9 @@ class MainActivity : AppCompatActivity(), BleCaptureManager.Listener {
             val baselineReady = report.initialState.isNotEmpty() || report.outcome in setOf("initial_state_saved", "profile_write_verified", "profile_write_not_persisted", "region_change_required")
             val capability = X3CapabilityPolicy.profileWrites(report.model, report.initialState + report.deepScan?.results.orEmpty())
             dashboard.showMutationCapability(capability, baselineReady)
+            // Deep scan can duplicate baseline addresses; prefer its latest successful values.
+            dashboard.showCapturedSettings((report.initialState + report.deepScan?.results.orEmpty())
+                .associateBy { it.device to it.register }.values.toList())
             dashboard.deepScan.visibility = if (ok) View.VISIBLE else View.GONE
             report.deepScan?.let { dashboard.showTelemetry(Zt3TelemetryDecoder.decode(it.results)) }
             dashboard.export.isEnabled = true; dashboard.export.alpha = 1f

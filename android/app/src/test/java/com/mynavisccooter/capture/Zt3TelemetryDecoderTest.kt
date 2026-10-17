@@ -4,6 +4,18 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class Zt3TelemetryDecoderTest {
+    @Test fun rejectsTruncatedWrongBoardAndDuplicateMeasurements() {
+        val truncated = Zt3TelemetryDecoder.decode(listOf(
+            RegisterCapture(0x07, 0x96, "battery_temperatures", 4, "15"),
+            RegisterCapture(0x07, 0x8C, "battery_voltage", 2, "GGGG"),
+            RegisterCapture(0x16, 0x86, "mcu_speed", 2, "FA00")))
+        org.junit.Assert.assertNull(truncated.batteryTempC)
+        org.junit.Assert.assertNull(truncated.voltageV)
+        org.junit.Assert.assertNull(truncated.speedKmh)
+        val row = RegisterCapture(0x07, 0x8F, "battery_soc", 2, "4E00")
+        org.junit.Assert.assertNull(Zt3TelemetryDecoder.decode(listOf(row, row)).batteryPercent)
+        org.junit.Assert.assertNull(Zt3TelemetryDecoder.decode(listOf(row.copy(valueHex = "4E01"))).batteryPercent)
+    }
     @Test fun decodesVerifiedX3Units() {
         val rows = listOf(
             RegisterCapture(0x02, 0x86, "mcu_speed", 2, "FA00"),

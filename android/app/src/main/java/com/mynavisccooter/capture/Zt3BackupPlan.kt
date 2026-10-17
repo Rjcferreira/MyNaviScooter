@@ -109,7 +109,13 @@ object Zt3TelemetryDecoder {
     }.getOrDefault(byteArrayOf())
     private fun u16(b: ByteArray) = if (b.size >= 2) (b[0].toInt() and 255) or ((b[1].toInt() and 255) shl 8) else 0
     private fun s16(b: ByteArray): Int = u16(b).toShort().toInt()
-    private fun find(rows: List<RegisterCapture>, name: String) = rows.firstOrNull { it.name == name }?.let { bytes(it.valueHex) }
+    private fun find(rows: List<RegisterCapture>, name: String): ByteArray? {
+        val row = rows.singleOrNull { it.name == name } ?: return null
+        val spec = Zt3DeepScanPlan.documented.singleOrNull { it.name == name } ?: return null
+        if (row.device != spec.device || row.register != spec.register || row.expectedBytes != spec.length ||
+            row.valueHex.length != spec.length * 2 || !row.valueHex.matches(Regex("[0-9a-fA-F]+"))) return null
+        return bytes(row.valueHex)
+    }
     fun decode(rows: List<RegisterCapture>): TelemetrySnapshot {
         val volts = find(rows, "battery_voltage")?.let { u16(it) / 100f }
         val amps = find(rows, "battery_current")?.let { s16(it) / 100f }
@@ -122,7 +128,8 @@ object Zt3TelemetryDecoder {
             ?.map { (it[0].toInt() and 255) or ((it[1].toInt() and 255) shl 8) }.orEmpty()
         return TelemetrySnapshot(
             speedKmh = speedRaw?.let { it / 10f },
-            batteryPercent = (find(rows, "battery_soc") ?: find(rows, "battery_percent"))?.firstOrNull()?.toInt()?.and(255),
+            batteryPercent = (find(rows, "battery_soc")?.let(::u16)?.takeIf { it in 0..100 }
+                ?: find(rows, "battery_percent")?.let(::u16)?.takeIf { it in 0..100 }),
             voltageV = volts, currentA = amps, powerW = if (volts != null && amps != null) volts * amps else null,
             rangeKm = find(rows, "remaining_range")?.let { u16(it) / 100f },
             vcuTempC = find(rows, "vcu_temperature")?.let { s16(it) / 10f },

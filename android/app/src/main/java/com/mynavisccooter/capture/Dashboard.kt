@@ -35,6 +35,7 @@ class Dashboard(private val context: Context) {
     lateinit var deepScan: Button
     lateinit var live: Button
     private lateinit var capabilityNotice: TextView
+    private lateinit var settingsReadout: TextView
     private lateinit var speedDial: SpeedDial
     private lateinit var batteryValue: TextView
     private lateinit var rangeValue: TextView
@@ -141,6 +142,9 @@ class Dashboard(private val context: Context) {
         profile.addView(label("Eco  ·  Drive  ·  Sport", 16f, orange))
         profile.addView(label("O estado inicial é guardado antes de qualquer alteração feita pela app.", 13f, muted))
         profile.addView(label("Teste limitado: apenas registos de velocidade 0x47/0x48", 15f, muted))
+        profile.addView(label("CONFIGURAÇÕES LIDAS DA SCOOTER", 11f, orange))
+        settingsReadout = label("Liga e lê a scooter para consultar os valores reais. Nenhuma alteração será enviada.", 14f, muted)
+        profile.addView(settingsReadout)
         capabilityNotice = label("A verificar compatibilidade da VCU…", 13f, orange)
         profile.addView(capabilityNotice)
         applyProfile = button("Aplicar Drive 25 / Sport 30", true, onApply).apply { visibility = View.GONE }
@@ -229,6 +233,12 @@ class Dashboard(private val context: Context) {
         restoreProfile.isEnabled = capability.allowed
         applyProfile.alpha = if (capability.allowed) 1f else .45f
         restoreProfile.alpha = if (capability.allowed) 1f else .45f
+    }
+    fun showCapturedSettings(rows: List<RegisterCapture>) {
+        if (!::settingsReadout.isInitialized) return
+        val lines = X3SettingsReadout.lines(rows)
+        settingsReadout.text = if (lines.isEmpty()) "Configurações indisponíveis nesta leitura." else
+            lines.joinToString("\n") + "\n\nApenas leitura · os valores descrevem esta captura, não garantem o estado após desligar."
     }
     fun showTelemetry(value: TelemetrySnapshot) {
         speedDial.speed = value.speedKmh
