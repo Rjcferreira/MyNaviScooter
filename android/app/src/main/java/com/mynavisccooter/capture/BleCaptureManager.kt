@@ -431,7 +431,7 @@ class BleCaptureManager(private val context: Context, private val listener: List
         val serial = result?.reportedSerial ?: run { finish("baseline_serial_missing"); return }
         val captured = InitialBaseline(serial, initialState.toList())
         if (!baselineStore.saveFirst(captured)) { finish("baseline_store_failed"); return }
-        val baseline = baselineStore.load()
+        val baseline = baselineStore.load(serial)
         if (baseline == null || baseline.serial != serial || baseline.registers.size != Zt3BackupPlan.required.size) {
             finish("baseline_verify_failed"); return
         }
@@ -453,24 +453,15 @@ class BleCaptureManager(private val context: Context, private val listener: List
         val reg47 = baseline.register(0x16, 0x47) ?: run { finish("baseline_speed_missing"); return }
         val reg48 = baseline.register(0x16, 0x48) ?: run { finish("baseline_speed_missing"); return }
         val germanZt3 = serial.startsWith("1K1D", ignoreCase = true)
-        val taintedByReviewTest = germanZt3 && (
-            reg47.valueHex.equals("0F19", true) ||
-            reg48.valueHex.equals("1E14", true) || reg48.valueHex.equals("1E1E", true) ||
-            reg48.valueHex.equals("1414", true)
-        )
         if (requestedOperation == RequestedOperation.APPLY_25_30 && germanZt3) {
             event("profile_write_blocked reason=german_region_rejected_sport_30")
             finish("region_change_required")
             return
         }
-        writeQueue = if (requestedOperation == RequestedOperation.RESTORE_INITIAL && taintedByReviewTest) {
-            event("baseline_recovery source=verified_pre_write_report reg47=0F14 reg48=1416")
-            mutableListOf(reg47.copy(valueHex = "0F14"), reg48.copy(valueHex = "1416"))
-        } else if (requestedOperation == RequestedOperation.RESTORE_INITIAL) mutableListOf(reg47, reg48) else mutableListOf(
+        writeQueue = if (requestedOperation == RequestedOperation.RESTORE_INITIAL) mutableListOf(reg47, reg48) else mutableListOf(
             reg47.copy(valueHex = reg47.valueHex.take(2) + "19"),
-            // Verified X3 wire format is [0x14, Sport]. Do not derive byte 0
-            // from a baseline that may contain the review.47/.48 test artifact.
-            reg48.copy(valueHex = "141E")
+            // Preserve the unrelated low byte captured from this scooter.
+            reg48.copy(valueHex = reg48.valueHex.take(2) + "1E")
         )
         writeIndex = 0; arm("write", 10000L)
         listener.onStatus(if (requestedOperation == RequestedOperation.RESTORE_INITIAL) "A restaurar os limites guardados…" else "A aplicar apenas Drive 25 e Sport 30…")
